@@ -19,7 +19,8 @@ import Link from "next/link";
 export function Topbar({ title }: { title: string }) {
   const notifications = useDataStore((s) => s.notifications);
   const markAllRead = useDataStore((s) => s.markAllRead);
-  const sos = useDataStore((s) => s.sos.filter((s) => !s.resolved));
+  const sosAll = useDataStore((s) => s.sos);
+  const sos = sosAll.filter((s) => !s.resolved);
   const unread = notifications.filter((n) => !n.read).length;
 
   return (
