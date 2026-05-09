@@ -1,0 +1,102 @@
+"use client";
+
+import { Topbar } from "@/components/shared/Topbar";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { useDataStore } from "@/lib/stores/data";
+import Link from "next/link";
+import { format } from "date-fns";
+import { vi } from "date-fns/locale";
+import { formatKg } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+
+const REASON_LABEL: Record<string, string> = {
+  CUSTOMER_REJECTED: "KH từ chối nhận",
+  NO_CONTACT: "Không liên lạc được",
+  WRONG_ADDRESS: "Sai địa chỉ",
+  DAMAGED_GOODS: "Hàng hư hỏng",
+  CUSTOMER_REQUEST: "KH yêu cầu trả",
+  VEHICLE_BREAKDOWN: "Xe sự cố",
+};
+
+export default function ReturnsPage() {
+  const returns = useDataStore((s) => s.returns);
+  const orders = useDataStore((s) => s.orders);
+  const customers = useDataStore((s) => s.customers);
+
+  return (
+    <>
+      <Topbar title="Đơn trả hàng" />
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
+        <p className="text-sm text-muted-foreground">{returns.length} đơn trả hàng</p>
+        <Card>
+          <CardContent className="p-0">
+            <table className="w-full text-sm">
+              <thead className="bg-muted/50 text-left">
+                <tr>
+                  <th className="px-4 py-3 font-medium">Mã trả</th>
+                  <th className="px-4 py-3 font-medium">Đơn gốc</th>
+                  <th className="px-4 py-3 font-medium">Khách hàng</th>
+                  <th className="px-4 py-3 font-medium">Lý do</th>
+                  <th className="px-4 py-3 font-medium">KL trả</th>
+                  <th className="px-4 py-3 font-medium">Trạng thái</th>
+                  <th className="px-4 py-3 font-medium">Ngày tạo</th>
+                  <th className="px-4 py-3 font-medium"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {returns.length === 0 && (
+                  <tr><td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">Chưa có đơn trả nào</td></tr>
+                )}
+                {returns.map((r) => {
+                  const o = orders.find((oo) => oo.id === r.originalOrderId);
+                  const c = o ? customers.find((cc) => cc.id === o.customerId) : null;
+                  return (
+                    <tr key={r.id} className="border-t">
+                      <td className="px-4 py-3 font-mono">{r.code}</td>
+                      <td className="px-4 py-3">
+                        {o && (
+                          <Link href={`/orders/${o.id}`} className="font-mono text-primary hover:underline">{o.code}</Link>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">{c?.name ?? "—"}</td>
+                      <td className="px-4 py-3 text-xs">{REASON_LABEL[r.reason]}</td>
+                      <td className="px-4 py-3">{formatKg(r.weightKg)}</td>
+                      <td className="px-4 py-3">
+                        <Badge variant={r.status === "COMPLETED" ? "success" : r.status === "RETURNING" ? "default" : "warning"}>
+                          {r.status}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3 text-xs text-muted-foreground">
+                        {format(new Date(r.createdAt), "dd/MM HH:mm", { locale: vi })}
+                      </td>
+                      <td className="px-4 py-3">
+                        {r.status !== "COMPLETED" && (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => {
+                              useDataStore.setState((s) => ({
+                                returns: s.returns.map((x) =>
+                                  x.id === r.id ? { ...x, status: "COMPLETED", completedAt: new Date().toISOString() } : x
+                                ),
+                              }));
+                              toast.success(`Đã hoàn tất trả hàng ${r.code}`);
+                            }}
+                          >
+                            Hoàn tất
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </CardContent>
+        </Card>
+      </div>
+    </>
+  );
+}
