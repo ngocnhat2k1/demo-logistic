@@ -28,7 +28,7 @@ export type QuotaType = "POSTPAID" | "MONTHLY" | "PREPAID";
 
 export interface QuotaTransaction {
   id: string;
-  type: "CONSUME" | "REFUND" | "RESET" | "TOPUP";
+  type: "CONSUME" | "REFUND" | "RESET" | "TOPUP" | "RESERVE" | "RELEASE" | "PAYMENT";
   amount: number; // kg, positive
   orderId?: string;
   reason: string;
@@ -38,8 +38,10 @@ export interface QuotaTransaction {
 
 export interface Quota {
   type: QuotaType;
-  limit: number;
-  used: number;
+  limit: number; // kg; ignored for POSTPAID (no cap)
+  reserved: number; // kg in-flight: order created but not yet DELIVERED/cancelled
+  used: number; // kg actually consumed (DELIVERED or counted-as-used returns)
+  outstanding?: number; // POSTPAID only: kg delivered but not yet paid
   resetCycle?: "MONTHLY" | "NEVER";
   lastResetAt?: string;
   history: QuotaTransaction[];
@@ -156,27 +158,35 @@ export interface Order {
   updatedAt: string;
   deliveryEvidence?: string[]; // data URLs
   signature?: string; // data URL
-  failureReason?: ReturnReason;
+  failureReasonId?: string;
   failureNotes?: string;
 }
 
 // ----- Return -----
-export type ReturnReason =
-  | "CUSTOMER_REJECTED"
-  | "NO_CONTACT"
-  | "WRONG_ADDRESS"
-  | "DAMAGED_GOODS"
-  | "CUSTOMER_REQUEST"
-  | "VEHICLE_BREAKDOWN";
+export type ReturnReasonCategory = "FORCE_MAJEURE" | "CUSTOMER_FAULT";
+
+export interface ReturnReasonConfig {
+  id: string;
+  code: string; // built-in like CUSTOMER_REJECTED, or CUSTOM_xxx
+  label: string;
+  category: ReturnReasonCategory;
+  refundPercent: number; // 0-100
+  active: boolean;
+  isBuiltIn: boolean;
+}
 
 export interface ReturnOrder {
   id: string;
   code: string;
   originalOrderId: string;
-  reason: ReturnReason;
+  reasonId: string;
+  reasonLabel: string; // snapshot of label at time of creation
+  reasonCategory: ReturnReasonCategory; // snapshot
+  refundPercent: number; // snapshot
   notes?: string;
   evidencePhotos: string[];
   weightKg: number;
+  refundedKg: number;
   status: "CREATED" | "PROCESSING" | "RETURNING" | "COMPLETED";
   vehicleId?: string;
   createdAt: string;

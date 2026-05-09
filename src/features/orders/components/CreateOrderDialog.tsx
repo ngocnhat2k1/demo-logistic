@@ -3,7 +3,6 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { Camera, AlertTriangle, Plus } from "lucide-react";
-import Link from "next/link";
 import { toast } from "sonner";
 
 import {
@@ -24,15 +23,17 @@ import {
 } from "@/shared/ui/select";
 import { useDataStore } from "@/shared/stores/data";
 import { useAuthStore } from "@/features/auth/stores/auth";
-import { checkQuota } from "@/features/orders/domain/quota";
+import { checkQuota, quotaInUse, quotaLabel } from "@/features/orders/domain/quota";
+import { formatKg } from "@/shared/utils";
 import { PLACES, type PlaceKey } from "@/shared/mock/geo";
 
 interface Props {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onOpenImport?: () => void;
 }
 
-export function CreateOrderDialog({ open, onOpenChange }: Props) {
+export function CreateOrderDialog({ open, onOpenChange, onOpenImport }: Props) {
   const router = useRouter();
   const customers = useDataStore((s) => s.customers);
   const createOrder = useDataStore((s) => s.createOrder);
@@ -127,21 +128,12 @@ export function CreateOrderDialog({ open, onOpenChange }: Props) {
           <DialogTitle>Tạo đơn hàng</DialogTitle>
           <DialogDescription>
             Hoặc{" "}
-            <Link
-              href="/orders/import"
-              className="text-primary hover:underline"
-              onClick={() => handleOpenChange(false)}
+            <button
+              className="text-primary hover:underline text-sm"
+              onClick={() => { handleOpenChange(false); onOpenImport?.(); }}
             >
               import từ Excel
-            </Link>{" "}
-            /{" "}
-            <Link
-              href="/integrations/cyber"
-              className="text-primary hover:underline"
-              onClick={() => handleOpenChange(false)}
-            >
-              pull từ Cyber
-            </Link>
+            </button>
             .
           </DialogDescription>
         </DialogHeader>
@@ -249,6 +241,26 @@ export function CreateOrderDialog({ open, onOpenChange }: Props) {
               />
             </div>
           </div>
+
+          {customer && (
+            <div className="rounded-md border bg-muted/30 p-3 text-xs space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="font-medium">Hạn mức: {quotaLabel(customer.quota)}</span>
+                {customer.quota.type === "POSTPAID" ? (
+                  <span className="text-muted-foreground">
+                    Công nợ: {formatKg(customer.quota.outstanding ?? 0)}
+                  </span>
+                ) : (
+                  <span className="text-muted-foreground">
+                    Đã dùng {formatKg(quotaInUse(customer.quota))} / {formatKg(customer.quota.limit)}
+                    {(customer.quota.reserved ?? 0) > 0 && (
+                      <> · giữ chỗ {formatKg(customer.quota.reserved ?? 0)}</>
+                    )}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
 
           {quotaCheck && quotaCheck.level !== "ok" && (
             <div

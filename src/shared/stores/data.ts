@@ -19,7 +19,7 @@ import type {
   DispatchAssignment,
   Quota,
   QuotaTransaction,
-  ReturnReason,
+  ReturnReasonConfig,
   Location,
 } from "@/shared/types";
 import { buildSeed } from "@/shared/mock/seed";
@@ -38,6 +38,7 @@ interface DataState {
   messages: MockMessage[];
   sos: SosAlert[];
   cyberLog: CyberSyncEntry[];
+  returnReasons: ReturnReasonConfig[];
   _hasHydrated: boolean;
   setHydrated: () => void;
 
@@ -45,10 +46,44 @@ interface DataState {
   ensureSeeded: () => void;
   resetAll: () => void;
 
+  // customer
+  addCustomer: (input: {
+    name: string;
+    phone: string;
+    email?: string;
+    address: string;
+    taxCode?: string;
+    quotaType: import("@/shared/types").QuotaType;
+    quotaLimitKg: number; // ignored for POSTPAID
+  }) => Customer;
+  updateCustomer: (
+    id: string,
+    input: {
+      name: string;
+      phone: string;
+      email?: string;
+      address: string;
+      taxCode?: string;
+      quotaType: import("@/shared/types").QuotaType;
+      quotaLimitKg: number;
+    },
+    actorId: string
+  ) => void;
+
   // customer / quota
-  consumeQuota: (customerId: string, kg: number, orderId: string, actorId: string) => boolean;
-  refundQuota: (customerId: string, kg: number, orderId: string, actorId: string, reason: string) => void;
+  reserveQuota: (customerId: string, kg: number, orderId: string, actorId: string) => void;
+  releaseQuota: (customerId: string, kg: number, orderId: string, actorId: string, reason: string) => void;
+  consumeReservedQuota: (customerId: string, kg: number, orderId: string, actorId: string) => void;
+  recordPayment: (customerId: string, kg: number, actorId: string, note?: string) => void;
+  topUpQuota: (customerId: string, kg: number, actorId: string, note?: string) => void;
   resetMonthlyQuota: (customerId: string) => void;
+  autoResetMonthlyIfDue: () => void;
+
+  // return reasons config
+  addReturnReason: (input: Omit<ReturnReasonConfig, "id" | "isBuiltIn">) => void;
+  updateReturnReason: (id: string, patch: Partial<Omit<ReturnReasonConfig, "id" | "isBuiltIn" | "code">>) => void;
+  toggleReturnReason: (id: string) => void;
+  deleteReturnReason: (id: string) => void;
 
   // orders
   createOrder: (
@@ -60,7 +95,7 @@ interface DataState {
   assignOrderToVehicle: (orderId: string, vehicleId: string, actorId: string, weightKg?: number, partLabel?: string) => DispatchAssignment | null;
   unassignOrder: (orderId: string, assignmentId: string, actorId: string) => void;
   splitOrder: (orderId: string, parts: number[]) => string[]; // returns new order ids
-  reportDeliveryFailure: (orderId: string, reason: ReturnReason, notes: string, photos: string[], actorId: string) => void;
+  reportDeliveryFailure: (orderId: string, reasonId: string, notes: string, photos: string[], actorId: string) => void;
   completeDelivery: (orderId: string, signature: string | undefined, photos: string[], actorId: string) => void;
 
   // vehicles
@@ -98,6 +133,7 @@ const empty = {
   messages: [],
   sos: [],
   cyberLog: [],
+  returnReasons: [],
 };
 
 function nowIso() {
@@ -131,11 +167,180 @@ export const useDataStore = create<DataState>()(
         set({ ...empty, ...seed });
       },
 
-      consumeQuota: (customerId, kg, orderId, actorId) => {
+      addCustomer: (input) => {
+        const customers = get().customers;
+        const code = `KH-${String(customers.length + 1).padStart(3, "0")}`;
+        const now = nowIso();
+        const isPostpaid = input.quotaType === "POSTPAID";
+        const quota: Quota = {
+          type: input.quotaType,
+          limit: isPostpaid ? 0 : input.quotaLimitKg,
+          reserved: 0,
+          used: 0,
+          outstanding: isPostpaid ? 0 : undefined,
+          resetCycle: input.quotaType === "MONTHLY" ? "MONTHLY" : "NEVER",
+          lastResetAt: input.quotaType === "MONTHLY" ? now : undefined,
+          history: isPostpaid
+            ? []
+            : [
+                {
+                  id: uid("qt"),
+                  type: "TOPUP",
+                  amount: input.quotaLimitKg,
+                  reason: "Khởi tạo hạn mức",
+                  actorId: "system",
+                  createdAt: now,
+                },
+              ],
+        };
+        const c: Customer = {
+          id: uid("customer"),
+          code,
+          name: input.name,
+          phone: input.phone,
+          email: input.email,
+          address: input.address,
+          taxCode: input.taxCode,
+          quota,
+          source: "MANUAL",
+          createdAt: now,
+        };
+        set({ customers: [c, ...customers] });
+        return c;
+      },
+
+      updateCustomer: (id, input, actorId) => {
+        const c = get().customers.find((x) => x.id === id);
+        if (!c) return;
+        const now = nowIso();
+        const oldType = c.quota.type;
+        const newType = input.quotaType;
+        const isPostpaidNew = newType === "POSTPAID";
+        let quota: Quota = {
+          ...c.quota,
+          type: newType,
+          resetCycle: newType === "MONTHLY" ? "MONTHLY" : "NEVER",
+        };
+
+        if (oldType !== newType) {
+          // Reset balances when switching quota type — keep history
+          quota = {
+            ...quota,
+            limit: isPostpaidNew ? 0 : input.quotaLimitKg,
+            reserved: 0,
+            used: 0,
+            outstanding: isPostpaidNew ? 0 : undefined,
+            lastResetAt: newType === "MONTHLY" ? now : c.quota.lastResetAt,
+            history: [
+              ...c.quota.history,
+              {
+                id: uid("qt"),
+                type: "RESET",
+                amount: 0,
+                reason: `Đổi loại hạn mức: ${oldType} → ${newType}`,
+                actorId,
+                createdAt: now,
+              },
+              ...(!isPostpaidNew && input.quotaLimitKg > 0
+                ? [
+                    {
+                      id: uid("qt"),
+                      type: "TOPUP" as const,
+                      amount: input.quotaLimitKg,
+                      reason: `Khởi tạo hạn mức (${newType})`,
+                      actorId,
+                      createdAt: now,
+                    },
+                  ]
+                : []),
+            ],
+          };
+        } else if (!isPostpaidNew && input.quotaLimitKg !== c.quota.limit) {
+          const delta = input.quotaLimitKg - c.quota.limit;
+          quota = {
+            ...quota,
+            limit: input.quotaLimitKg,
+            history: [
+              ...c.quota.history,
+              {
+                id: uid("qt"),
+                type: delta > 0 ? "TOPUP" : "RESET",
+                amount: Math.abs(delta),
+                reason:
+                  delta > 0
+                    ? `Tăng hạn mức ${delta} kg`
+                    : `Giảm hạn mức ${Math.abs(delta)} kg`,
+                actorId,
+                createdAt: now,
+              },
+            ],
+          };
+        }
+
+        set({
+          customers: get().customers.map((x) =>
+            x.id === id
+              ? {
+                  ...x,
+                  name: input.name,
+                  phone: input.phone,
+                  email: input.email,
+                  address: input.address,
+                  taxCode: input.taxCode,
+                  quota,
+                }
+              : x
+          ),
+        });
+      },
+
+      reserveQuota: (customerId, kg, orderId, actorId) => {
         const c = get().customers.find((x) => x.id === customerId);
-        if (!c) return false;
-        const newUsed = c.quota.used + kg;
-        if (newUsed > c.quota.limit) return false;
+        if (!c) return;
+        const tx: QuotaTransaction = {
+          id: uid("qt"),
+          type: "RESERVE",
+          amount: kg,
+          orderId,
+          reason: "Tạo đơn — giữ chỗ hạn mức",
+          actorId,
+          createdAt: nowIso(),
+        };
+        const updated: Quota = {
+          ...c.quota,
+          reserved: (c.quota.reserved ?? 0) + kg,
+          history: [...c.quota.history, tx],
+        };
+        set({
+          customers: get().customers.map((x) => (x.id === customerId ? { ...x, quota: updated } : x)),
+        });
+      },
+
+      releaseQuota: (customerId, kg, orderId, actorId, reason) => {
+        const c = get().customers.find((x) => x.id === customerId);
+        if (!c) return;
+        const tx: QuotaTransaction = {
+          id: uid("qt"),
+          type: "RELEASE",
+          amount: kg,
+          orderId,
+          reason,
+          actorId,
+          createdAt: nowIso(),
+        };
+        const updated: Quota = {
+          ...c.quota,
+          reserved: Math.max(0, (c.quota.reserved ?? 0) - kg),
+          history: [...c.quota.history, tx],
+        };
+        set({
+          customers: get().customers.map((x) => (x.id === customerId ? { ...x, quota: updated } : x)),
+        });
+      },
+
+      consumeReservedQuota: (customerId, kg, orderId, actorId) => {
+        const c = get().customers.find((x) => x.id === customerId);
+        if (!c) return;
         const tx: QuotaTransaction = {
           id: uid("qt"),
           type: "CONSUME",
@@ -145,27 +350,56 @@ export const useDataStore = create<DataState>()(
           actorId,
           createdAt: nowIso(),
         };
-        const updated: Quota = { ...c.quota, used: newUsed, history: [...c.quota.history, tx] };
+        const updated: Quota = {
+          ...c.quota,
+          reserved: Math.max(0, (c.quota.reserved ?? 0) - kg),
+          used: c.quota.used + kg,
+          outstanding:
+            c.quota.type === "POSTPAID" ? (c.quota.outstanding ?? 0) + kg : c.quota.outstanding,
+          history: [...c.quota.history, tx],
+        };
         set({
           customers: get().customers.map((x) => (x.id === customerId ? { ...x, quota: updated } : x)),
         });
-        return true;
       },
 
-      refundQuota: (customerId, kg, orderId, actorId, reason) => {
+      recordPayment: (customerId, kg, actorId, note) => {
         const c = get().customers.find((x) => x.id === customerId);
-        if (!c) return;
-        const newUsed = Math.max(0, c.quota.used - kg);
+        if (!c || c.quota.type !== "POSTPAID") return;
         const tx: QuotaTransaction = {
           id: uid("qt"),
-          type: "REFUND",
+          type: "PAYMENT",
           amount: kg,
-          orderId,
-          reason,
+          reason: note ?? "Ghi nhận thanh toán",
           actorId,
           createdAt: nowIso(),
         };
-        const updated: Quota = { ...c.quota, used: newUsed, history: [...c.quota.history, tx] };
+        const updated: Quota = {
+          ...c.quota,
+          outstanding: Math.max(0, (c.quota.outstanding ?? 0) - kg),
+          history: [...c.quota.history, tx],
+        };
+        set({
+          customers: get().customers.map((x) => (x.id === customerId ? { ...x, quota: updated } : x)),
+        });
+      },
+
+      topUpQuota: (customerId, kg, actorId, note) => {
+        const c = get().customers.find((x) => x.id === customerId);
+        if (!c) return;
+        const tx: QuotaTransaction = {
+          id: uid("qt"),
+          type: "TOPUP",
+          amount: kg,
+          reason: note ?? "Nạp thêm hạn mức",
+          actorId,
+          createdAt: nowIso(),
+        };
+        const updated: Quota = {
+          ...c.quota,
+          limit: c.quota.limit + kg,
+          history: [...c.quota.history, tx],
+        };
         set({
           customers: get().customers.map((x) => (x.id === customerId ? { ...x, quota: updated } : x)),
         });
@@ -182,10 +416,71 @@ export const useDataStore = create<DataState>()(
           actorId: "system",
           createdAt: nowIso(),
         };
-        const updated: Quota = { ...c.quota, used: 0, lastResetAt: nowIso(), history: [...c.quota.history, tx] };
+        const updated: Quota = {
+          ...c.quota,
+          used: 0,
+          lastResetAt: nowIso(),
+          history: [...c.quota.history, tx],
+        };
         set({
           customers: get().customers.map((x) => (x.id === customerId ? { ...x, quota: updated } : x)),
         });
+      },
+
+      autoResetMonthlyIfDue: () => {
+        const now = new Date();
+        const ym = `${now.getFullYear()}-${now.getMonth()}`;
+        const customers = get().customers;
+        let changed = false;
+        const updatedCustomers = customers.map((c) => {
+          if (c.quota.type !== "MONTHLY") return c;
+          const last = c.quota.lastResetAt ? new Date(c.quota.lastResetAt) : null;
+          const lastYm = last ? `${last.getFullYear()}-${last.getMonth()}` : null;
+          if (lastYm === ym) return c;
+          changed = true;
+          const tx: QuotaTransaction = {
+            id: uid("qt"),
+            type: "RESET",
+            amount: c.quota.used,
+            reason: "Reset tự động đầu tháng",
+            actorId: "system",
+            createdAt: nowIso(),
+          };
+          return {
+            ...c,
+            quota: { ...c.quota, used: 0, lastResetAt: nowIso(), history: [...c.quota.history, tx] },
+          };
+        });
+        if (changed) set({ customers: updatedCustomers });
+      },
+
+      addReturnReason: (input) => {
+        const item: ReturnReasonConfig = {
+          ...input,
+          id: uid("rr"),
+          isBuiltIn: false,
+        };
+        set({ returnReasons: [...get().returnReasons, item] });
+      },
+
+      updateReturnReason: (id, patch) => {
+        set({
+          returnReasons: get().returnReasons.map((r) => (r.id === id ? { ...r, ...patch } : r)),
+        });
+      },
+
+      toggleReturnReason: (id) => {
+        set({
+          returnReasons: get().returnReasons.map((r) =>
+            r.id === id ? { ...r, active: !r.active } : r
+          ),
+        });
+      },
+
+      deleteReturnReason: (id) => {
+        const r = get().returnReasons.find((x) => x.id === id);
+        if (!r || r.isBuiltIn) return;
+        set({ returnReasons: get().returnReasons.filter((x) => x.id !== id) });
       },
 
       createOrder: (input) => {
@@ -219,6 +514,8 @@ export const useDataStore = create<DataState>()(
           updatedAt: now,
         };
         set({ orders: [order, ...orders] });
+        // reserve quota immediately upon creation
+        get().reserveQuota(input.customerId, input.weightKg, order.id, "user");
         return order;
       },
 
@@ -233,9 +530,16 @@ export const useDataStore = create<DataState>()(
       cancelOrder: (id, actorId) => {
         const order = get().orders.find((o) => o.id === id);
         if (!order) return;
-        // refund quota if not delivered
-        if (order.status !== "DELIVERED" && order.status !== "RETURNED") {
-          // check if quota has been consumed (only after delivery in our model) -- nothing to refund
+        // refund reserved quota if order had not yet been delivered/failed
+        const releasable: OrderStatus[] = [
+          "NEW",
+          "PENDING_DISPATCH",
+          "DISPATCHED",
+          "PICKED_UP",
+          "IN_TRANSIT",
+        ];
+        if (releasable.includes(order.status)) {
+          get().releaseQuota(order.customerId, order.weightKg, order.id, actorId, "Hủy đơn — hoàn hạn mức");
         }
         // free vehicles
         order.assignments.forEach((a) => {
@@ -431,21 +735,34 @@ export const useDataStore = create<DataState>()(
             ...newOrders,
           ],
         });
+        // Quota: parent's reserved amount equals sum of parts; net zero — log as a single audit pair
+        get().releaseQuota(order.customerId, order.weightKg, order.id, "user", "Tách đơn — giải phóng đơn gốc");
+        for (const child of newOrders) {
+          get().reserveQuota(order.customerId, child.weightKg, child.id, "user");
+        }
         return newIds;
       },
 
-      reportDeliveryFailure: (orderId, reason, notes, photos, actorId) => {
+      reportDeliveryFailure: (orderId, reasonId, notes, photos, actorId) => {
         const order = get().orders.find((o) => o.id === orderId);
         if (!order) return;
+        const reason = get().returnReasons.find((r) => r.id === reasonId);
+        if (!reason) return;
         const now = nowIso();
+        const refundedKg = Math.round((order.weightKg * reason.refundPercent) / 100);
+        const consumedKg = order.weightKg - refundedKg;
         const ret: ReturnOrder = {
           id: uid("return"),
           code: `RT-${String(get().returns.length + 1).padStart(4, "0")}`,
           originalOrderId: order.id,
-          reason,
+          reasonId: reason.id,
+          reasonLabel: reason.label,
+          reasonCategory: reason.category,
+          refundPercent: reason.refundPercent,
           notes,
           evidencePhotos: photos,
           weightKg: order.weightKg,
+          refundedKg,
           status: "CREATED",
           vehicleId: order.assignments[0]?.vehicleId,
           createdAt: now,
@@ -457,7 +774,7 @@ export const useDataStore = create<DataState>()(
                   ...o,
                   status: "DELIVERY_FAILED",
                   updatedAt: now,
-                  failureReason: reason,
+                  failureReasonId: reason.id,
                   failureNotes: notes,
                   deliveryEvidence: photos,
                   events: [
@@ -465,7 +782,7 @@ export const useDataStore = create<DataState>()(
                     {
                       id: uid("evt"),
                       type: "DELIVERY_FAILED",
-                      payload: { reason, notes },
+                      payload: { reasonId: reason.id, reasonLabel: reason.label, refundPercent: reason.refundPercent, notes },
                       actorId,
                       at: now,
                     },
@@ -475,16 +792,27 @@ export const useDataStore = create<DataState>()(
           ),
           returns: [ret, ...get().returns],
         });
-        // refund quota immediately upon failure
-        get().refundQuota(order.customerId, order.weightKg, order.id, actorId, "Giao thất bại - hoàn hạn mức");
+        // Quota: release the refunded portion; convert the rest from reserved → used (charged to customer)
+        if (refundedKg > 0) {
+          get().releaseQuota(
+            order.customerId,
+            refundedKg,
+            order.id,
+            actorId,
+            `Hoàn ${reason.refundPercent}% theo lý do "${reason.label}"`
+          );
+        }
+        if (consumedKg > 0) {
+          get().consumeReservedQuota(order.customerId, consumedKg, order.id, actorId);
+        }
       },
 
       completeDelivery: (orderId, signature, photos, actorId) => {
         const order = get().orders.find((o) => o.id === orderId);
         if (!order) return;
         const now = nowIso();
-        // consume quota if not already done
-        get().consumeQuota(order.customerId, order.weightKg, order.id, actorId);
+        // consume reserved → used (POSTPAID also bumps outstanding)
+        get().consumeReservedQuota(order.customerId, order.weightKg, order.id, actorId);
         // free vehicle
         const a = order.assignments[0];
         if (a) {

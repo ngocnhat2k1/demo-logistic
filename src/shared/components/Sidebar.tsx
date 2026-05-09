@@ -11,6 +11,7 @@ import {
   BarChart3,
   Cable,
   Settings,
+  SlidersHorizontal,
   Send,
   LogOut,
   Truck as TruckIcon,
@@ -31,6 +32,7 @@ const NAV = [
   { href: "/returns", label: "Trả hàng", icon: RotateCcw, roles: ["ADMIN", "OPS_MANAGER", "DISPATCHER"] },
   { href: "/integrations/cyber", label: "Tích hợp Cyber", icon: Cable, roles: ["ADMIN", "OPS_MANAGER"] },
   { href: "/reports", label: "Báo cáo", icon: BarChart3, roles: ["ADMIN", "OPS_MANAGER"] },
+  { href: "/settings/return-reasons", label: "Cấu hình lý do trả", icon: SlidersHorizontal, roles: ["ADMIN", "OPS_MANAGER"] },
   { href: "/admin/users", label: "Quản trị", icon: Settings, roles: ["ADMIN"] },
 ] as const;
 

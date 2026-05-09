@@ -11,15 +11,6 @@ import { formatKg } from "@/shared/utils";
 import { Button } from "@/shared/ui/button";
 import { toast } from "sonner";
 
-const REASON_LABEL: Record<string, string> = {
-  CUSTOMER_REJECTED: "KH từ chối nhận",
-  NO_CONTACT: "Không liên lạc được",
-  WRONG_ADDRESS: "Sai địa chỉ",
-  DAMAGED_GOODS: "Hàng hư hỏng",
-  CUSTOMER_REQUEST: "KH yêu cầu trả",
-  VEHICLE_BREAKDOWN: "Xe sự cố",
-};
-
 export default function ReturnsPage() {
   const returns = useDataStore((s) => s.returns);
   const orders = useDataStore((s) => s.orders);
@@ -39,7 +30,8 @@ export default function ReturnsPage() {
                   <th className="px-4 py-3 font-medium">Đơn gốc</th>
                   <th className="px-4 py-3 font-medium">Khách hàng</th>
                   <th className="px-4 py-3 font-medium">Lý do</th>
-                  <th className="px-4 py-3 font-medium">KL trả</th>
+                  <th className="px-4 py-3 font-medium">Phân loại</th>
+                  <th className="px-4 py-3 font-medium">KL trả / Hoàn HM</th>
                   <th className="px-4 py-3 font-medium">Trạng thái</th>
                   <th className="px-4 py-3 font-medium">Ngày tạo</th>
                   <th className="px-4 py-3 font-medium"></th>
@@ -47,7 +39,7 @@ export default function ReturnsPage() {
               </thead>
               <tbody>
                 {returns.length === 0 && (
-                  <tr><td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">Chưa có đơn trả nào</td></tr>
+                  <tr><td colSpan={9} className="px-4 py-12 text-center text-muted-foreground">Chưa có đơn trả nào</td></tr>
                 )}
                 {returns.map((r) => {
                   const o = orders.find((oo) => oo.id === r.originalOrderId);
@@ -61,8 +53,18 @@ export default function ReturnsPage() {
                         )}
                       </td>
                       <td className="px-4 py-3">{c?.name ?? "—"}</td>
-                      <td className="px-4 py-3 text-xs">{REASON_LABEL[r.reason]}</td>
-                      <td className="px-4 py-3">{formatKg(r.weightKg)}</td>
+                      <td className="px-4 py-3 text-xs">{r.reasonLabel}</td>
+                      <td className="px-4 py-3">
+                        <Badge variant={r.reasonCategory === "FORCE_MAJEURE" ? "success" : "warning"}>
+                          {r.reasonCategory === "FORCE_MAJEURE" ? "Bất khả kháng" : "Chủ quan KH"}
+                        </Badge>
+                      </td>
+                      <td className="px-4 py-3 text-xs">
+                        {formatKg(r.weightKg)}
+                        <div className="text-[11px] text-muted-foreground">
+                          Hoàn {r.refundPercent}% = {formatKg(r.refundedKg)}
+                        </div>
+                      </td>
                       <td className="px-4 py-3">
                         <Badge variant={r.status === "COMPLETED" ? "success" : r.status === "RETURNING" ? "default" : "warning"}>
                           {r.status}

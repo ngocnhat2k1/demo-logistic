@@ -56,7 +56,11 @@ export default function DashboardPage() {
 
   // Chart 3: top customers by quota usage
   const topQuotaCustomers = [...customers]
-    .map((c) => ({ ...c, ratio: c.quota.limit ? c.quota.used / c.quota.limit : 0 }))
+    .filter((c) => c.quota.type !== "POSTPAID" && c.quota.limit > 0)
+    .map((c) => ({
+      ...c,
+      ratio: ((c.quota.reserved ?? 0) + c.quota.used) / c.quota.limit,
+    }))
     .sort((a, b) => b.ratio - a.ratio)
     .slice(0, 8);
 

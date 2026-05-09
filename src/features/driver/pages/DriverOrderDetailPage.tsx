@@ -13,16 +13,7 @@ import { useAuthStore } from "@/features/auth/stores/auth";
 import { useState, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/shared/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
-import type { ReturnReason } from "@/shared/types";
-
-const REASON_LABEL: Record<ReturnReason, string> = {
-  CUSTOMER_REJECTED: "KH từ chối nhận",
-  NO_CONTACT: "Không liên lạc được KH",
-  WRONG_ADDRESS: "Sai địa chỉ",
-  DAMAGED_GOODS: "Hàng hư hỏng",
-  CUSTOMER_REQUEST: "KH yêu cầu trả",
-  VEHICLE_BREAKDOWN: "Xe gặp sự cố",
-};
+import { Badge } from "@/shared/ui/badge";
 
 export default function DriverOrderDetailPage() {
   const router = useRouter();
@@ -33,11 +24,14 @@ export default function DriverOrderDetailPage() {
   const reportDeliveryFailure = useDataStore((s) => s.reportDeliveryFailure);
   const pushNotification = useDataStore((s) => s.pushNotification);
   const customers = useDataStore((s) => s.customers);
+  const returnReasons = useDataStore((s) => s.returnReasons);
+  const activeReasons = returnReasons.filter((r) => r.active);
   const user = useAuthStore((s) => s.currentUser);
 
   const [failOpen, setFailOpen] = useState(false);
-  const [failReason, setFailReason] = useState<ReturnReason>("CUSTOMER_REJECTED");
+  const [failReasonId, setFailReasonId] = useState<string>("");
   const [failNotes, setFailNotes] = useState("");
+  const selectedReason = activeReasons.find((r) => r.id === failReasonId) ?? activeReasons[0];
 
   const [completeOpen, setCompleteOpen] = useState(false);
   const [signature, setSignature] = useState<string | null>(null);
@@ -90,16 +84,16 @@ export default function DriverOrderDetailPage() {
   }
 
   function reportFail() {
-    if (!user || !order) return;
-    reportDeliveryFailure(order.id, failReason, failNotes, [], user.id);
+    if (!user || !order || !selectedReason) return;
+    reportDeliveryFailure(order.id, selectedReason.id, failNotes, [], user.id);
     pushNotification({
       type: "ORDER_FAILED",
       severity: "destructive",
       title: "Giao thất bại",
-      message: `${order.code}: ${REASON_LABEL[failReason]}`,
+      message: `${order.code}: ${selectedReason.label}`,
       targetRoles: ["DISPATCHER", "OPS_MANAGER"],
     });
-    toast.error(`Báo giao thất bại: ${REASON_LABEL[failReason]}`);
+    toast.error(`Báo giao thất bại: ${selectedReason.label}`);
     setFailOpen(false);
     router.push("/driver");
   }
@@ -211,14 +205,28 @@ export default function DriverOrderDetailPage() {
           <div className="space-y-3">
             <div>
               <label className="text-sm font-medium mb-1.5 block">Lý do</label>
-              <Select value={failReason} onValueChange={(v) => setFailReason(v as ReturnReason)}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select
+                value={selectedReason?.id ?? ""}
+                onValueChange={(v) => setFailReasonId(v)}
+              >
+                <SelectTrigger><SelectValue placeholder="Chọn lý do" /></SelectTrigger>
                 <SelectContent>
-                  {(Object.keys(REASON_LABEL) as ReturnReason[]).map((r) => (
-                    <SelectItem key={r} value={r}>{REASON_LABEL[r]}</SelectItem>
+                  {activeReasons.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>{r.label}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {selectedReason && order && (
+                <div className="mt-2 flex items-center gap-2 text-xs">
+                  <Badge variant={selectedReason.category === "FORCE_MAJEURE" ? "success" : "warning"}>
+                    {selectedReason.category === "FORCE_MAJEURE" ? "Bất khả kháng" : "Chủ quan KH"}
+                  </Badge>
+                  <span className="text-muted-foreground">
+                    Sẽ hoàn {selectedReason.refundPercent}% hạn mức ={" "}
+                    {formatKg(Math.round((order.weightKg * selectedReason.refundPercent) / 100))}
+                  </span>
+                </div>
+              )}
             </div>
             <div>
               <label className="text-sm font-medium mb-1.5 block">Ghi chú</label>

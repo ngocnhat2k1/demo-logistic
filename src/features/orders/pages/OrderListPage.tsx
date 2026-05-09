@@ -14,6 +14,7 @@ import { ORDER_STATUS_LABEL } from "@/features/orders/domain/orderStatus";
 import type { OrderStatus } from "@/shared/types";
 import { StatusBadge } from "@/features/orders/components/StatusBadge";
 import { CreateOrderDialog } from "@/features/orders/components/CreateOrderDialog";
+import { ImportOrderDialog } from "@/features/orders/components/ImportOrderDialog";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
 import { formatKg } from "@/shared/utils";
@@ -39,6 +40,7 @@ export default function OrderListPage() {
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string>(sp.get("status") || "ALL");
   const [createOpen, setCreateOpen] = useState(false);
+  const [importOpen, setImportOpen] = useState(false);
 
   const filtered = useMemo(() => {
     return orders.filter((o) => {
@@ -74,10 +76,8 @@ export default function OrderListPage() {
             </SelectContent>
           </Select>
           <div className="ml-auto flex gap-2">
-            <Button asChild variant="outline">
-              <Link href="/orders/import">
-                <Upload className="h-4 w-4" /> Import Excel
-              </Link>
+            <Button variant="outline" onClick={() => setImportOpen(true)}>
+              <Upload className="h-4 w-4" /> Import Excel
             </Button>
             <Button onClick={() => setCreateOpen(true)}>
               <Plus className="h-4 w-4" /> Tạo đơn
@@ -85,7 +85,8 @@ export default function OrderListPage() {
           </div>
         </div>
 
-        <CreateOrderDialog open={createOpen} onOpenChange={setCreateOpen} />
+        <CreateOrderDialog open={createOpen} onOpenChange={setCreateOpen} onOpenImport={() => setImportOpen(true)} />
+        <ImportOrderDialog open={importOpen} onOpenChange={setImportOpen} />
 
         <p className="text-sm text-muted-foreground">{filtered.length} đơn hàng</p>
 

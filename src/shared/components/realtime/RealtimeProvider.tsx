@@ -17,6 +17,7 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
     function tick() {
       if (typeof document !== "undefined" && document.hidden) return;
       const state = useDataStore.getState();
+      state.autoResetMonthlyIfDue();
       state.vehicles.forEach((v) => {
         if (v.status !== "BUSY" || !v.routePolyline || v.routePolyline.length < 2) return;
         const p = (v.routeProgress ?? 0) + 0.025; // ~ 40 ticks to reach end

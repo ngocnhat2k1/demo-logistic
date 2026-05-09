@@ -10,6 +10,7 @@ import type {
   QuotaType,
   DispatchAssignment,
   AppNotification,
+  ReturnReasonConfig,
 } from "@/shared/types";
 import { mulberry32, pick, rangeInt, uid } from "@/shared/utils";
 import { PLACES, buildPolyline, placeToLocation, type PlaceKey } from "./geo";
@@ -76,6 +77,27 @@ function makePhone(rng: () => number) {
 }
 
 function makeQuota(rng: () => number, type: QuotaType): Quota {
+  if (type === "POSTPAID") {
+    const outstanding = Math.round(pick(rng, [0, 5000, 12000, 25000, 40000]));
+    return {
+      type,
+      limit: 0,
+      reserved: 0,
+      used: outstanding, // POSTPAID's used == cumulative delivered (also tracked as outstanding until paid)
+      outstanding,
+      resetCycle: "NEVER",
+      history: [
+        {
+          id: uid("qt"),
+          type: "CONSUME",
+          amount: outstanding,
+          reason: "Tích lũy đã giao (chưa thanh toán)",
+          actorId: "system",
+          createdAt: new Date(Date.now() - 14 * 86400000).toISOString(),
+        },
+      ],
+    };
+  }
   const limit = pick(rng, [5000, 8000, 10000, 15000, 20000, 30000]);
   // Distribute usage to demo states: 0%, 30-50%, 80-95%, 100%
   const usagePool = [0.1, 0.35, 0.5, 0.6, 0.85, 0.92, 0.97, 1.0];
@@ -83,6 +105,7 @@ function makeQuota(rng: () => number, type: QuotaType): Quota {
   return {
     type,
     limit,
+    reserved: 0,
     used,
     resetCycle: type === "MONTHLY" ? "MONTHLY" : "NEVER",
     lastResetAt: type === "MONTHLY" ? new Date().toISOString() : undefined,
@@ -110,6 +133,15 @@ function makeQuota(rng: () => number, type: QuotaType): Quota {
     ],
   };
 }
+
+const DEFAULT_RETURN_REASONS: ReturnReasonConfig[] = [
+  { id: "rr_customer_rejected", code: "CUSTOMER_REJECTED", label: "Khách từ chối nhận hàng", category: "CUSTOMER_FAULT", refundPercent: 0, active: true, isBuiltIn: true },
+  { id: "rr_no_contact", code: "NO_CONTACT", label: "Giao không thành công (không liên lạc được)", category: "CUSTOMER_FAULT", refundPercent: 50, active: true, isBuiltIn: true },
+  { id: "rr_wrong_address", code: "WRONG_ADDRESS", label: "Sai địa chỉ giao", category: "CUSTOMER_FAULT", refundPercent: 0, active: true, isBuiltIn: true },
+  { id: "rr_damaged_goods", code: "DAMAGED_GOODS", label: "Hàng hóa hư hỏng", category: "FORCE_MAJEURE", refundPercent: 100, active: true, isBuiltIn: true },
+  { id: "rr_customer_request", code: "CUSTOMER_REQUEST", label: "Yêu cầu trả hàng từ khách / kinh doanh", category: "CUSTOMER_FAULT", refundPercent: 0, active: true, isBuiltIn: true },
+  { id: "rr_vehicle_breakdown", code: "VEHICLE_BREAKDOWN", label: "Xe gặp sự cố phải hoàn hàng về kho", category: "FORCE_MAJEURE", refundPercent: 100, active: true, isBuiltIn: true },
+];
 
 export function buildSeed() {
   const rng = mulberry32(20260509);
@@ -291,6 +323,21 @@ export function buildSeed() {
     orders.push(order);
   }
 
+  // Reflect in-flight orders into customer.quota.reserved (so seeded data stays consistent)
+  const inflightStatuses: OrderStatus[] = [
+    "NEW",
+    "PENDING_DISPATCH",
+    "DISPATCHED",
+    "PICKED_UP",
+    "IN_TRANSIT",
+  ];
+  for (const o of orders) {
+    if (!inflightStatuses.includes(o.status)) continue;
+    const c = customers.find((cc) => cc.id === o.customerId);
+    if (!c) continue;
+    c.quota.reserved += o.weightKg;
+  }
+
   // ---- Users ----
   const users: User[] = [
     { id: "user_admin", email: "admin@demo.vn", fullName: "Trần Quản Trị", role: "ADMIN" },
@@ -313,7 +360,7 @@ export function buildSeed() {
       type: "QUOTA_WARNING",
       severity: "warning",
       title: "Hạn mức KH gần đầy",
-      message: `${customers.find((c) => c.quota.used / c.quota.limit > 0.85)?.name ?? "Khách"} đã dùng >85% hạn mức`,
+      message: `${customers.find((c) => c.quota.type !== "POSTPAID" && c.quota.limit > 0 && (c.quota.used + (c.quota.reserved ?? 0)) / c.quota.limit > 0.85)?.name ?? "Khách"} đã dùng >85% hạn mức`,
       targetRoles: ["DISPATCHER", "SALES", "OPS_MANAGER"],
       read: false,
       createdAt: new Date(Date.now() - 1800000).toISOString(),
@@ -330,7 +377,7 @@ export function buildSeed() {
     },
   ];
 
-  return { carriers, drivers, vehicles, customers, orders, users, notifications };
+  return { carriers, drivers, vehicles, customers, orders, users, notifications, returnReasons: DEFAULT_RETURN_REASONS };
 }
 
 export type SeedData = ReturnType<typeof buildSeed>;
