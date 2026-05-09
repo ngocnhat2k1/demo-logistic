@@ -67,6 +67,9 @@ interface DataState {
   setVehicleStatus: (vehicleId: string, status: Vehicle["status"]) => void;
   setVehicleLocation: (vehicleId: string, lat: number, lng: number, progress?: number) => void;
 
+  // drivers
+  setDriverStatus: (driverId: string, status: Driver["status"]) => void;
+
   // notifications
   pushNotification: (n: Omit<AppNotification, "id" | "createdAt" | "read">) => void;
   markAllRead: () => void;
@@ -517,6 +520,12 @@ export const useDataStore = create<DataState>()(
       setVehicleStatus: (vehicleId, status) => {
         set({
           vehicles: get().vehicles.map((v) => (v.id === vehicleId ? { ...v, status } : v)),
+        });
+      },
+
+      setDriverStatus: (driverId, status) => {
+        set({
+          drivers: get().drivers.map((d) => (d.id === driverId ? { ...d, status } : d)),
         });
       },
 
