@@ -1,7 +1,7 @@
 "use client";
 
-import { Sidebar } from "@/components/shared/Sidebar";
-import { useAuthStore } from "@/lib/stores/auth";
+import { Sidebar } from "@/shared/components/Sidebar";
+import { useAuthStore } from "@/features/auth/stores/auth";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 

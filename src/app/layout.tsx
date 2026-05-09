@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "leaflet/dist/leaflet.css";
 import { Toaster } from "sonner";
-import { HydrationGate } from "@/components/shared/HydrationGate";
-import { RealtimeProvider } from "@/components/realtime/RealtimeProvider";
+import { HydrationGate } from "@/shared/components/HydrationGate";
+import { RealtimeProvider } from "@/shared/components/realtime/RealtimeProvider";
 
 export const metadata: Metadata = {
   title: "Hệ thống Điều độ Phương tiện | Demo POC",

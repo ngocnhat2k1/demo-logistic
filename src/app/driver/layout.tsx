@@ -1,13 +1,13 @@
 "use client";
 
-import { useAuthStore } from "@/lib/stores/auth";
+import { useAuthStore } from "@/features/auth/stores/auth";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
 import Link from "next/link";
 import { Home, ListTodo, AlertTriangle, LogOut } from "lucide-react";
 import { usePathname } from "next/navigation";
-import { cn } from "@/lib/utils";
-import { useDataStore } from "@/lib/stores/data";
+import { cn } from "@/shared/utils";
+import { useDataStore } from "@/shared/stores/data";
 
 export default function DriverLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
