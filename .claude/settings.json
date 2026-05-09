@@ -1,0 +1,23 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs -I{} sh -c 'echo \"=== {} ===\"; cat \"{}\"')",
+      "Bash(xargs sed -i '' 's|@/lib/utils|@/shared/utils|g')",
+      "Bash(mkdir -p /Users/ngocnhat/.claude/skills/nextjs-feature-first-refactor/evals)",
+      "Edit(~/.claude/skills/nextjs-feature-first-refactor/**)",
+      "Bash(rm -rf /tmp/nextjs-eval-test && echo \"cleaned\")"
+    ],
+    "additionalDirectories": [
+      "/Users/ngocnhat/.claude/skills/nextjs-feature-first-refactor",
+      "/tmp/nextjs-eval-test/src/types",
+      "/private/tmp/nextjs-eval-test/src/types",
+      "/tmp/nextjs-eval-test/src/lib",
+      "/private/tmp/nextjs-eval-test/src/lib",
+      "/tmp/nextjs-eval-test/src/components/ui",
+      "/private/tmp/nextjs-eval-test/src/components/ui",
+      "/tmp/nextjs-eval-test/src/components/shared",
+      "/private/tmp/nextjs-eval-test/src/components/shared",
+      "/private/tmp/nextjs-eval-test"
+    ]
+  }
+}
