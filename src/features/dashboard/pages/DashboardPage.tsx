@@ -67,8 +67,8 @@ export default function DashboardPage() {
   return (
     <>
       <Topbar title="Dashboard" />
-      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-6">
-        <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+      <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4 md:space-y-6">
+        <div className="grid gap-3 md:gap-4 grid-cols-2 lg:grid-cols-4 auto-rows-fr">
           <KpiCard title="Đơn chờ điều phối" value={newCount} icon={Clock} accent="warn" href="/orders?status=NEW" />
           <KpiCard title="Đang vận chuyển" value={inTransit} icon={Truck} accent="info" href="/dispatch" />
           <KpiCard title="Đã giao thành công" value={delivered} icon={CheckCircle2} accent="ok" href="/orders?status=DELIVERED" />
@@ -76,17 +76,17 @@ export default function DashboardPage() {
         </div>
 
         <div className="grid gap-4 grid-cols-1 lg:grid-cols-3">
-          <Card className="lg:col-span-2">
-            <CardHeader>
-              <CardTitle>Đơn hàng 7 ngày qua</CardTitle>
+          <Card className="lg:col-span-2 flex flex-col">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base md:text-lg">Đơn hàng 7 ngày qua</CardTitle>
               <CardDescription>Tổng đơn nhận vs đơn đã giao</CardDescription>
             </CardHeader>
-            <CardContent className="h-72">
+            <CardContent className="flex-1 h-64 md:h-72 px-2 md:px-6">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={chartData}>
+                <LineChart data={chartData} margin={{ top: 5, right: 8, left: -16, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="day" />
-                  <YAxis />
+                  <XAxis dataKey="day" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip />
                   <Line type="monotone" dataKey="total" stroke="hsl(217 91% 45%)" strokeWidth={2} name="Tổng đơn" />
                   <Line type="monotone" dataKey="delivered" stroke="hsl(142 71% 45%)" strokeWidth={2} name="Đã giao" />
@@ -95,12 +95,12 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Đội xe</CardTitle>
+          <Card className="flex flex-col">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base md:text-lg">Đội xe</CardTitle>
               <CardDescription>{availableVehicles} sẵn sàng / {busyVehicles} đang chạy</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-2">
+            <CardContent className="flex-1 space-y-2">
               <Stat label="Tổng xe" value={vehicles.length} icon={<Truck className="h-4 w-4" />} />
               <Stat label="Tổng tài xế" value={drivers.length} icon={<Users className="h-4 w-4" />} />
               <Stat label="Tổng khách hàng" value={customers.length} icon={<Package className="h-4 w-4" />} />
@@ -109,17 +109,17 @@ export default function DashboardPage() {
         </div>
 
         <div className="grid gap-4 grid-cols-1 lg:grid-cols-2">
-          <Card>
-            <CardHeader>
-              <CardTitle>Hiệu suất tài xế (Top 8)</CardTitle>
+          <Card className="flex flex-col">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base md:text-lg">Hiệu suất tài xế (Top 8)</CardTitle>
               <CardDescription>Số đơn đã giao thành công</CardDescription>
             </CardHeader>
-            <CardContent className="h-64">
+            <CardContent className="flex-1 h-64 px-2 md:px-6">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={topDrivers}>
+                <BarChart data={topDrivers} margin={{ top: 5, right: 8, left: -16, bottom: 0 }}>
                   <CartesianGrid strokeDasharray="3 3" />
-                  <XAxis dataKey="name" tick={{ fontSize: 11 }} interval={0} angle={-30} textAnchor="end" height={60} />
-                  <YAxis />
+                  <XAxis dataKey="name" tick={{ fontSize: 10 }} interval={0} angle={-30} textAnchor="end" height={60} />
+                  <YAxis tick={{ fontSize: 11 }} />
                   <Tooltip />
                   <Bar dataKey="count" fill="hsl(217 91% 45%)" />
                 </BarChart>
@@ -127,21 +127,24 @@ export default function DashboardPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Hạn mức KH (Top 8)</CardTitle>
+          <Card className="flex flex-col">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base md:text-lg">Hạn mức KH (Top 8)</CardTitle>
               <CardDescription>% đã sử dụng</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="flex-1 space-y-3">
+              {topQuotaCustomers.length === 0 && (
+                <p className="text-sm text-muted-foreground text-center py-6">Chưa có dữ liệu</p>
+              )}
               {topQuotaCustomers.map((c) => {
                 const lvl = quotaLevelColor(c.quota);
                 return (
                   <div key={c.id} className="space-y-1">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="truncate font-medium">{c.name}</span>
+                    <div className="flex items-center justify-between text-sm gap-2">
+                      <span className="truncate font-medium min-w-0">{c.name}</span>
                       <span className={
-                        lvl === "danger" ? "text-destructive font-semibold" :
-                        lvl === "warn" ? "text-warning font-semibold" : "text-muted-foreground"
+                        lvl === "danger" ? "text-destructive font-semibold shrink-0" :
+                        lvl === "warn" ? "text-warning font-semibold shrink-0" : "text-muted-foreground shrink-0"
                       }>
                         {Math.round(c.ratio * 100)}%
                       </span>
@@ -184,15 +187,15 @@ function KpiCard({
   };
   const Wrapper = href ? Link : "div";
   return (
-    <Wrapper href={href ?? "#"}>
-      <Card className="hover:shadow-md transition cursor-pointer">
-        <CardContent className="p-4 flex items-center gap-3">
-          <div className={`flex h-10 w-10 items-center justify-center rounded-lg ${palette[accent]}`}>
+    <Wrapper href={href ?? "#"} className="block h-full">
+      <Card className="hover:shadow-md transition cursor-pointer h-full">
+        <CardContent className="p-3 md:p-4 flex items-center gap-3 h-full">
+          <div className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg ${palette[accent]}`}>
             <Icon className="h-5 w-5" />
           </div>
-          <div>
-            <p className="text-xs text-muted-foreground">{title}</p>
-            <p className="text-2xl font-bold leading-tight">{value}</p>
+          <div className="min-w-0 flex-1">
+            <p className="text-xs text-muted-foreground line-clamp-2 leading-tight">{title}</p>
+            <p className="text-xl md:text-2xl font-bold leading-tight mt-0.5">{value}</p>
           </div>
         </CardContent>
       </Card>

@@ -174,7 +174,7 @@ export default function FleetPage() {
       <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-5">
 
         {/* Summary stats */}
-        <div className="grid grid-cols-2 md:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
           <StatCard label="Tổng xe" value={vehicles.length} icon={<Truck className="h-4 w-4" />} />
           <StatCard label="Xe rảnh" value={vAvailable} color="text-emerald-600" />
           <StatCard label="Đang chạy" value={vBusy} color="text-blue-600" />
@@ -194,10 +194,10 @@ export default function FleetPage() {
         </div>
 
         <Tabs defaultValue="carriers">
-          <TabsList>
-            <TabsTrigger value="carriers">Nhà xe ({carriers.length})</TabsTrigger>
-            <TabsTrigger value="vehicles">Xe ({vehicles.length})</TabsTrigger>
-            <TabsTrigger value="drivers">Tài xế ({drivers.length})</TabsTrigger>
+          <TabsList className="w-full grid grid-cols-3 sm:inline-flex sm:w-auto">
+            <TabsTrigger value="carriers" className="text-xs sm:text-sm">Nhà xe ({carriers.length})</TabsTrigger>
+            <TabsTrigger value="vehicles" className="text-xs sm:text-sm">Xe ({vehicles.length})</TabsTrigger>
+            <TabsTrigger value="drivers" className="text-xs sm:text-sm">Tài xế ({drivers.length})</TabsTrigger>
           </TabsList>
 
           {/* ===== CARRIERS ===== */}
@@ -263,14 +263,14 @@ export default function FleetPage() {
 
           {/* ===== VEHICLES ===== */}
           <TabsContent value="vehicles" className="space-y-3 mt-3">
-            <div className="flex flex-wrap gap-2">
-              <div className="relative">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative w-full sm:w-48">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Tìm biển số..."
                   value={vehicleSearch}
                   onChange={(e) => setVehicleSearch(e.target.value)}
-                  className="pl-8 w-48"
+                  className="pl-8 w-full"
                 />
               </div>
 
@@ -346,16 +346,17 @@ export default function FleetPage() {
 
             <Card>
               <CardContent className="p-0">
-                <table className="w-full text-sm">
+                <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[720px]">
                   <thead className="bg-muted/50 text-left">
                     <tr>
-                      <th className="px-4 py-3 font-medium">Biển số</th>
-                      <th className="px-4 py-3 font-medium">Loại xe</th>
-                      <th className="px-4 py-3 font-medium">Tải trọng</th>
-                      <th className="px-4 py-3 font-medium">Đơn vị</th>
-                      <th className="px-4 py-3 font-medium">Loại NX</th>
-                      <th className="px-4 py-3 font-medium">Tài xế</th>
-                      <th className="px-4 py-3 font-medium">Trạng thái</th>
+                      <th className="px-4 py-3 font-medium whitespace-nowrap">Biển số</th>
+                      <th className="px-4 py-3 font-medium whitespace-nowrap">Loại xe</th>
+                      <th className="px-4 py-3 font-medium whitespace-nowrap">Tải trọng</th>
+                      <th className="px-4 py-3 font-medium whitespace-nowrap">Đơn vị</th>
+                      <th className="px-4 py-3 font-medium whitespace-nowrap">Loại NX</th>
+                      <th className="px-4 py-3 font-medium whitespace-nowrap">Tài xế</th>
+                      <th className="px-4 py-3 font-medium whitespace-nowrap">Trạng thái</th>
                       <th className="px-4 py-3 font-medium w-[1%]"></th>
                     </tr>
                   </thead>
@@ -441,20 +442,21 @@ export default function FleetPage() {
                     })}
                   </tbody>
                 </table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
 
           {/* ===== DRIVERS ===== */}
           <TabsContent value="drivers" className="space-y-3 mt-3">
-            <div className="flex flex-wrap gap-2">
-              <div className="relative">
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative w-full sm:w-48">
                 <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
                 <Input
                   placeholder="Tên / SĐT..."
                   value={driverSearch}
                   onChange={(e) => setDriverSearch(e.target.value)}
-                  className="pl-8 w-48"
+                  className="pl-8 w-full"
                 />
               </div>
 
@@ -531,16 +533,17 @@ export default function FleetPage() {
 
             <Card>
               <CardContent className="p-0">
-                <table className="w-full text-sm">
+                <div className="overflow-x-auto">
+                <table className="w-full text-sm min-w-[720px]">
                   <thead className="bg-muted/50 text-left">
                     <tr>
-                      <th className="px-4 py-3 font-medium">Tên tài xế</th>
-                      <th className="px-4 py-3 font-medium">SĐT</th>
-                      <th className="px-4 py-3 font-medium">Hạng bằng</th>
-                      <th className="px-4 py-3 font-medium">Xe đang dùng</th>
-                      <th className="px-4 py-3 font-medium">Đơn vị</th>
-                      <th className="px-4 py-3 font-medium">Loại NX</th>
-                      <th className="px-4 py-3 font-medium">Trạng thái</th>
+                      <th className="px-4 py-3 font-medium whitespace-nowrap">Tên tài xế</th>
+                      <th className="px-4 py-3 font-medium whitespace-nowrap">SĐT</th>
+                      <th className="px-4 py-3 font-medium whitespace-nowrap">Hạng bằng</th>
+                      <th className="px-4 py-3 font-medium whitespace-nowrap">Xe đang dùng</th>
+                      <th className="px-4 py-3 font-medium whitespace-nowrap">Đơn vị</th>
+                      <th className="px-4 py-3 font-medium whitespace-nowrap">Loại NX</th>
+                      <th className="px-4 py-3 font-medium whitespace-nowrap">Trạng thái</th>
                       <th className="px-4 py-3 font-medium w-[1%]"></th>
                     </tr>
                   </thead>
@@ -621,6 +624,7 @@ export default function FleetPage() {
                     })}
                   </tbody>
                 </table>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>

@@ -78,29 +78,32 @@ export default function CustomerListPage() {
         <>
             <Topbar title="Khách hàng" />
             <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
-                <div className="flex flex-wrap items-center gap-2">
-                    <div className="relative flex-1 min-w-[240px] max-w-md">
-                        <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-                        <Input
-                            placeholder="Tìm theo tên, mã, SĐT, email..."
-                            value={q}
-                            onChange={(e) => setQ(e.target.value)}
-                            className="pl-9"
-                        />
+                <div className="flex flex-col gap-3">
+                    <div className="flex flex-col sm:flex-row gap-2">
+                        <div className="relative flex-1">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="Tìm theo tên, mã, SĐT, email..."
+                                value={q}
+                                onChange={(e) => setQ(e.target.value)}
+                                className="pl-9"
+                            />
+                        </div>
+                        <Button className="sm:flex-none" onClick={() => setAddOpen(true)}>
+                            <Plus className="h-4 w-4" /> Thêm khách hàng
+                        </Button>
                     </div>
-                    <p className="text-sm text-muted-foreground">{filtered.length} khách hàng</p>
-                    <div className="flex-1" />
-                    <Button onClick={() => setAddOpen(true)}>
-                        <Plus className="h-4 w-4" /> Thêm khách hàng
-                    </Button>
+                    <p className="text-sm text-muted-foreground">
+                        <span className="font-semibold text-foreground">{filtered.length}</span> khách hàng
+                    </p>
                 </div>
 
                 <Tabs value={tab} onValueChange={(v) => setTab(v as TabKey)}>
-                    <TabsList>
+                    <TabsList className="w-full grid grid-cols-4 sm:inline-flex sm:w-auto">
                         {TAB_DEFS.map((t) => (
-                            <TabsTrigger key={t.key} value={t.key}>
-                                {t.label}{" "}
-                                <span className="ml-1.5 text-xs text-muted-foreground">
+                            <TabsTrigger key={t.key} value={t.key} className="text-xs sm:text-sm">
+                                <span className="truncate">{t.label}</span>
+                                <span className="ml-1 text-xs text-muted-foreground">
                                     ({counts[t.key]})
                                 </span>
                             </TabsTrigger>
@@ -108,7 +111,123 @@ export default function CustomerListPage() {
                     </TabsList>
                 </Tabs>
 
-                <Card>
+                {/* Mobile: card list */}
+                <div className="md:hidden space-y-2">
+                    {filtered.length === 0 && (
+                        <Card>
+                            <CardContent className="p-6 text-center text-sm text-muted-foreground">
+                                Không có khách hàng phù hợp
+                            </CardContent>
+                        </Card>
+                    )}
+                    {filtered.map((c) => {
+                        const lvl = quotaLevelColor(c.quota);
+                        const isPostpaid = c.quota.type === "POSTPAID";
+                        const ratio = quotaUsageRatio(c.quota);
+                        const style = QUOTA_STYLE[c.quota.type];
+                        const Icon = style.icon;
+                        return (
+                            <Card key={c.id} className={cn("hover:border-primary transition", style.row)}>
+                                <CardContent className="p-3 space-y-2">
+                                    <div className="flex items-start justify-between gap-2">
+                                        <Link href={`/customers/${c.id}`} className="block min-w-0 flex-1 group">
+                                            <div className="flex items-center gap-2 flex-wrap">
+                                                <span className="font-mono text-[11px] text-muted-foreground">
+                                                    {c.code}
+                                                </span>
+                                                <span className="font-semibold group-hover:underline truncate">
+                                                    {c.name}
+                                                </span>
+                                            </div>
+                                            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                                                <span className="inline-flex items-center gap-1">
+                                                    <Phone className="h-3 w-3" />
+                                                    {c.phone}
+                                                </span>
+                                                {c.email && (
+                                                    <span className="inline-flex items-center gap-1 truncate max-w-full">
+                                                        <Mail className="h-3 w-3 shrink-0" />
+                                                        <span className="truncate">{c.email}</span>
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </Link>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className="shrink-0 h-8 w-8"
+                                            onClick={(e) => {
+                                                e.preventDefault();
+                                                setEditing(c);
+                                            }}
+                                            title="Sửa khách hàng"
+                                        >
+                                            <Pencil className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                    <div className="flex items-center gap-2">
+                                        <Badge
+                                            variant="outline"
+                                            className={cn("font-medium text-[11px]", style.badge)}
+                                        >
+                                            <Icon className="h-3 w-3 mr-1" />
+                                            {quotaLabel(c.quota)}
+                                        </Badge>
+                                    </div>
+                                    {isPostpaid ? (
+                                        <div className="text-xs space-y-0.5 pt-1 border-t">
+                                            <p className="text-muted-foreground">
+                                                Đã giao tích lũy{" "}
+                                                <span className="font-semibold text-foreground">
+                                                    {formatKg(c.quota.used)}
+                                                </span>
+                                            </p>
+                                            <p
+                                                className={
+                                                    lvl === "danger"
+                                                        ? "text-destructive font-semibold"
+                                                        : lvl === "warn"
+                                                          ? "text-warning font-semibold"
+                                                          : "text-foreground"
+                                                }
+                                            >
+                                                Công nợ: {formatKg(c.quota.outstanding ?? 0)}
+                                            </p>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-1 pt-1 border-t">
+                                            <Progress
+                                                value={Math.min(100, ratio * 100)}
+                                                indicatorClassName={
+                                                    lvl === "danger"
+                                                        ? "bg-destructive"
+                                                        : lvl === "warn"
+                                                          ? "bg-warning"
+                                                          : "bg-primary"
+                                                }
+                                            />
+                                            <p
+                                                className={cn(
+                                                    "text-xs",
+                                                    lvl === "danger"
+                                                        ? "text-destructive font-semibold"
+                                                        : lvl === "warn"
+                                                          ? "text-warning font-semibold"
+                                                          : "text-muted-foreground",
+                                                )}
+                                            >
+                                                {Math.round(ratio * 100)}% — {formatKg(quotaInUse(c.quota))}/
+                                                {formatKg(c.quota.limit)}
+                                            </p>
+                                        </div>
+                                    )}
+                                </CardContent>
+                            </Card>
+                        );
+                    })}
+                </div>
+
+                <Card className="hidden md:block">
                     <CardContent className="p-0">
                         <div className="overflow-x-auto">
                             <table className="w-full text-sm">
