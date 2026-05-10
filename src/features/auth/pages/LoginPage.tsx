@@ -37,11 +37,12 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 p-4">
       <Card className="w-full max-w-2xl">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground">
-            <Truck className="h-6 w-6" />
+          <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-xl bg-primary/10">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/logo.svg" alt="Mona Logistic" width={40} height={32} />
           </div>
-          <CardTitle className="text-2xl">Hệ thống Quản lý Điều độ</CardTitle>
-          <CardDescription>Demo POC — Đăng nhập 1-click với role có sẵn</CardDescription>
+          <CardTitle className="text-2xl">Mona Logistic</CardTitle>
+          <CardDescription>Đăng nhập 1-click với role có sẵn</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid gap-3 sm:grid-cols-2">
@@ -66,7 +67,7 @@ export default function LoginPage() {
             })}
           </div>
           <p className="mt-6 text-center text-xs text-muted-foreground">
-            Đây là demo POC — không có xác thực thật. Chọn role để vào hệ thống.
+            Bản demo Mona Logistic — không có xác thực thật. Chọn role để vào hệ thống.
           </p>
         </CardContent>
       </Card>

@@ -16,7 +16,6 @@ import {
     SlidersHorizontal,
     Send,
     LogOut,
-    Truck as TruckIcon,
     RefreshCw,
     ChevronDown,
 } from "lucide-react";
@@ -167,17 +166,18 @@ export function Sidebar() {
     return (
         <aside className="hidden md:flex w-72 shrink-0 flex-col border-r bg-card">
             <div className="flex items-center gap-2 px-4 py-4 border-b">
-                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary text-primary-foreground">
-                    <TruckIcon className="h-5 w-5" />
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src="/logo.svg" alt="Mona Logistic" width={28} height={22} />
                 </div>
                 <div>
-                    <p className="text-sm font-semibold leading-tight">Điều độ GTVT</p>
-                    <p className="text-xs text-muted-foreground">Demo POC v1.0</p>
+                    <p className="text-sm font-semibold leading-tight">Mona Logistic</p>
+                    <p className="text-xs text-muted-foreground">Quản lý điều độ vận tải</p>
                 </div>
             </div>
 
             <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-                {/* ===== Fake mockup: MONA.Software / NHTQ ===== */}
+                {/* ===== Mona modules (mockup) ===== */}
                 {FAKE_SECTIONS.map((section) => {
                     const SectionIcon = section.icon;
                     return (
@@ -245,11 +245,11 @@ export function Sidebar() {
                     );
                 })}
 
-                {/* ===== Menu thật của Điều độ GTVT ===== */}
+                {/* ===== Mona Logistic — module chính ===== */}
                 <div className="mb-2">
                     <p className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-primary">
                         <FaRoad className="h-3.5 w-3.5" aria-hidden />
-                        ĐIỀU ĐỘ GTVT
+                        MONA LOGISTIC
                     </p>
                     <div className="space-y-0.5">
                         {NAV.filter((n) => (n.roles as readonly string[]).includes(user.role)).map(
