@@ -7,7 +7,7 @@ import { Input } from "@/shared/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { useDataStore } from "@/shared/stores/data";
 import { useMemo, useState } from "react";
-import { Plus, Search, Upload } from "lucide-react";
+import { Plus, Search, Upload, MapPin, X } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ORDER_STATUS_LABEL } from "@/features/orders/domain/orderStatus";
@@ -66,121 +66,186 @@ export default function OrderListPage() {
   const hasActiveFilter =
     status !== "ALL" || customerId !== "ALL" || fromDate !== "" || toDate !== "" || q !== "";
 
+  function clearFilters() {
+    setQ("");
+    setStatus("ALL");
+    setCustomerId("ALL");
+    setFromDate("");
+    setToDate("");
+  }
+
   return (
     <>
       <Topbar title="Đơn hàng" />
       <div className="flex-1 overflow-y-auto p-4 md:p-6 space-y-4">
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="relative flex-1 max-w-md min-w-[200px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input placeholder="Tìm theo mã đơn, KH, địa chỉ..." value={q} onChange={(e) => setQ(e.target.value)} className="pl-9" />
+        {/* Toolbar: search + actions */}
+        <div className="flex flex-col gap-3">
+          <div className="flex flex-col sm:flex-row gap-2">
+            <div className="relative flex-1">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+              <Input
+                placeholder="Tìm theo mã đơn, KH, địa chỉ..."
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+            <div className="flex gap-2 sm:flex-shrink-0">
+              <Button variant="outline" className="flex-1 sm:flex-none" onClick={() => setImportOpen(true)}>
+                <Upload className="h-4 w-4" /> Import Excel
+              </Button>
+              <Button className="flex-1 sm:flex-none" onClick={() => setCreateOpen(true)}>
+                <Plus className="h-4 w-4" /> Tạo đơn
+              </Button>
+            </div>
           </div>
-          <Select value={status} onValueChange={setStatus}>
-            <SelectTrigger className="w-48">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {STATUS_OPTIONS.map((s) => (
-                <SelectItem key={s} value={s}>
-                  {s === "ALL" ? "Tất cả trạng thái" : ORDER_STATUS_LABEL[s as OrderStatus]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <Select value={customerId} onValueChange={setCustomerId}>
-            <SelectTrigger className="w-56">
-              <SelectValue placeholder="Tất cả khách hàng" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="ALL">Tất cả khách hàng</SelectItem>
-              {customers.map((c) => (
-                <SelectItem key={c.id} value={c.id}>
-                  {c.name} ({c.code})
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-          <div className="flex items-center gap-1.5">
+
+          {/* Filters: 1 col mobile, 2 cols sm, 4 cols lg */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-2">
+            <Select value={status} onValueChange={setStatus}>
+              <SelectTrigger>
+                <SelectValue placeholder="Trạng thái" />
+              </SelectTrigger>
+              <SelectContent>
+                {STATUS_OPTIONS.map((s) => (
+                  <SelectItem key={s} value={s}>
+                    {s === "ALL" ? "Tất cả trạng thái" : ORDER_STATUS_LABEL[s as OrderStatus]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={customerId} onValueChange={setCustomerId}>
+              <SelectTrigger>
+                <SelectValue placeholder="Tất cả khách hàng" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="ALL">Tất cả khách hàng</SelectItem>
+                {customers.map((c) => (
+                  <SelectItem key={c.id} value={c.id}>
+                    {c.name} ({c.code})
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             <Input
               type="date"
               value={fromDate}
               onChange={(e) => setFromDate(e.target.value)}
-              className="w-[150px]"
               aria-label="Từ ngày"
+              placeholder="Từ ngày"
             />
-            <span className="text-xs text-muted-foreground">→</span>
             <Input
               type="date"
               value={toDate}
               onChange={(e) => setToDate(e.target.value)}
-              className="w-[150px]"
               aria-label="Đến ngày"
+              placeholder="Đến ngày"
             />
           </div>
-          {hasActiveFilter && (
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setQ("");
-                setStatus("ALL");
-                setCustomerId("ALL");
-                setFromDate("");
-                setToDate("");
-              }}
-            >
-              Xoá lọc
-            </Button>
-          )}
-          <div className="ml-auto flex gap-2">
-            <Button variant="outline" onClick={() => setImportOpen(true)}>
-              <Upload className="h-4 w-4" /> Import Excel
-            </Button>
-            <Button onClick={() => setCreateOpen(true)}>
-              <Plus className="h-4 w-4" /> Tạo đơn
-            </Button>
+
+          {/* Result count + clear filters */}
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-sm text-muted-foreground">
+              <span className="font-semibold text-foreground">{filtered.length}</span> đơn hàng
+            </p>
+            {hasActiveFilter && (
+              <Button variant="ghost" size="sm" onClick={clearFilters}>
+                <X className="h-3.5 w-3.5" /> Xoá lọc
+              </Button>
+            )}
           </div>
         </div>
 
         <CreateOrderDialog open={createOpen} onOpenChange={setCreateOpen} onOpenImport={() => setImportOpen(true)} />
         <ImportOrderDialog open={importOpen} onOpenChange={setImportOpen} />
 
-        <p className="text-sm text-muted-foreground">{filtered.length} đơn hàng</p>
+        {/* Mobile: card list */}
+        <div className="md:hidden space-y-2">
+          {filtered.length === 0 && (
+            <Card>
+              <CardContent className="p-6 text-center text-sm text-muted-foreground">
+                Không có đơn hàng phù hợp
+              </CardContent>
+            </Card>
+          )}
+          {filtered.slice(0, 100).map((o) => {
+            const c = customers.find((cc) => cc.id === o.customerId);
+            return (
+              <Link key={o.id} href={`/orders/${o.id}`} className="block">
+                <Card className="hover:border-primary transition">
+                  <CardContent className="p-3 space-y-2">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="font-mono text-sm font-semibold text-primary">{o.code}</p>
+                        <p className="font-medium text-sm truncate">{c?.name ?? "—"}</p>
+                      </div>
+                      <StatusBadge status={o.status} />
+                    </div>
+                    <div className="text-xs text-muted-foreground space-y-0.5">
+                      <p className="flex items-start gap-1">
+                        <MapPin className="h-3 w-3 mt-0.5 shrink-0 text-success" />
+                        <span className="truncate">{o.pickup.address}</span>
+                      </p>
+                      <p className="flex items-start gap-1">
+                        <MapPin className="h-3 w-3 mt-0.5 shrink-0 text-destructive" />
+                        <span className="truncate">{o.dropoff.address}</span>
+                      </p>
+                    </div>
+                    <div className="flex items-center justify-between text-xs pt-1 border-t">
+                      <span className="font-semibold">{formatKg(o.weightKg)}</span>
+                      <span className="text-muted-foreground">
+                        {format(new Date(o.createdAt), "dd/MM HH:mm", { locale: vi })}
+                      </span>
+                      <Badge variant="secondary">{o.source}</Badge>
+                    </div>
+                  </CardContent>
+                </Card>
+              </Link>
+            );
+          })}
+        </div>
 
-        <Card>
+        {/* Desktop: table */}
+        <Card className="hidden md:block">
           <CardContent className="p-0">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-muted/50 text-left">
                   <tr>
-                    <th className="px-4 py-3 font-medium">Mã đơn</th>
+                    <th className="px-4 py-3 font-medium whitespace-nowrap">Mã đơn</th>
                     <th className="px-4 py-3 font-medium">Khách hàng</th>
                     <th className="px-4 py-3 font-medium">Tuyến</th>
-                    <th className="px-4 py-3 font-medium">KL</th>
-                    <th className="px-4 py-3 font-medium">Trạng thái</th>
-                    <th className="px-4 py-3 font-medium">Tạo lúc</th>
-                    <th className="px-4 py-3 font-medium">Nguồn</th>
+                    <th className="px-4 py-3 font-medium whitespace-nowrap">KL</th>
+                    <th className="px-4 py-3 font-medium whitespace-nowrap">Trạng thái</th>
+                    <th className="px-4 py-3 font-medium whitespace-nowrap">Tạo lúc</th>
+                    <th className="px-4 py-3 font-medium whitespace-nowrap">Nguồn</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.length === 0 && (
-                    <tr><td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">Không có đơn hàng phù hợp</td></tr>
+                    <tr>
+                      <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
+                        Không có đơn hàng phù hợp
+                      </td>
+                    </tr>
                   )}
                   {filtered.slice(0, 100).map((o) => {
                     const c = customers.find((cc) => cc.id === o.customerId);
                     return (
                       <tr key={o.id} className="border-t hover:bg-muted/30">
-                        <td className="px-4 py-3">
-                          <Link href={`/orders/${o.id}`} className="font-mono text-primary hover:underline">{o.code}</Link>
+                        <td className="px-4 py-3 whitespace-nowrap">
+                          <Link href={`/orders/${o.id}`} className="font-mono text-primary hover:underline">
+                            {o.code}
+                          </Link>
                         </td>
                         <td className="px-4 py-3">{c?.name ?? "—"}</td>
                         <td className="px-4 py-3 text-xs text-muted-foreground max-w-[280px]">
                           <div className="truncate">{o.pickup.address}</div>
                           <div className="truncate">→ {o.dropoff.address}</div>
                         </td>
-                        <td className="px-4 py-3">{formatKg(o.weightKg)}</td>
+                        <td className="px-4 py-3 whitespace-nowrap">{formatKg(o.weightKg)}</td>
                         <td className="px-4 py-3"><StatusBadge status={o.status} /></td>
-                        <td className="px-4 py-3 text-xs text-muted-foreground">
+                        <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
                           {format(new Date(o.createdAt), "dd/MM HH:mm", { locale: vi })}
                         </td>
                         <td className="px-4 py-3"><Badge variant="secondary">{o.source}</Badge></td>
