@@ -6,18 +6,19 @@ import { Button } from "@/shared/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { useDataStore } from "@/shared/stores/data";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, MapPin, Package, User as UserIcon, X, Scissors } from "lucide-react";
+import { ArrowLeft, MapPin, Package, User as UserIcon, X, Scissors, Pencil, AlertTriangle } from "lucide-react";
 import { StatusBadge } from "@/features/orders/components/StatusBadge";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
 import { formatKg } from "@/shared/utils";
 import Link from "next/link";
-import { canCancel } from "@/features/orders/domain/orderStatus";
+import { canCancel, canEdit } from "@/features/orders/domain/orderStatus";
 import { toast } from "sonner";
 import { useAuthStore } from "@/features/auth/stores/auth";
 import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/shared/ui/dialog";
 import { Input, Label } from "@/shared/ui/input";
+import { EditOrderInfoDialog } from "@/features/orders/components/EditOrderInfoDialog";
 
 export default function OrderDetailPage() {
   const router = useRouter();
@@ -32,6 +33,7 @@ export default function OrderDetailPage() {
 
   const [splitOpen, setSplitOpen] = useState(false);
   const [splitParts, setSplitParts] = useState<number[]>([0, 0]);
+  const [editOpen, setEditOpen] = useState(false);
 
   if (!order) {
     return (
@@ -80,6 +82,11 @@ export default function OrderDetailPage() {
             <ArrowLeft className="h-4 w-4" /> Quay lại
           </Button>
           <div className="flex gap-2">
+            {canEdit(order.status) && (
+              <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+                <Pencil className="h-4 w-4" /> Sửa thông tin
+              </Button>
+            )}
             {canCancel(order.status) && order.assignments.length === 0 && (
               <Button variant="outline" size="sm" onClick={() => setSplitOpen(true)}>
                 <Scissors className="h-4 w-4" /> Tách đơn
@@ -110,13 +117,38 @@ export default function OrderDetailPage() {
                   <Link href={`/customers/${customer.id}`} className="text-primary hover:underline">{customer.name}</Link>
                 ) : "—"}
               </Field>
-              <Field icon={<Package className="h-4 w-4" />} label="Khối lượng">{formatKg(order.weightKg)}</Field>
+              <Field icon={<Package className="h-4 w-4" />} label="Khối lượng">
+                {formatKg(order.weightKg)}
+                {order.actualWeightKg !== undefined && (
+                  <span className="ml-2 text-xs text-muted-foreground">
+                    (thực tế đã ghi nhận)
+                  </span>
+                )}
+              </Field>
               <Field icon={<MapPin className="h-4 w-4" />} label="Điểm lấy">{order.pickup.address}</Field>
               <Field icon={<MapPin className="h-4 w-4" />} label="Điểm giao">{order.dropoff.address}</Field>
               <Field label="Yêu cầu giao">{format(new Date(order.requestedDeliveryAt), "dd/MM/yyyy HH:mm", { locale: vi })}</Field>
               <Field label="Tạo lúc">{format(new Date(order.createdAt), "dd/MM/yyyy HH:mm", { locale: vi })}</Field>
               {order.notes && <Field label="Ghi chú" full>{order.notes}</Field>}
+              {order.extraCostNote && (
+                <Field label="Chi phí phát sinh" full>
+                  <span className="text-warning">{order.extraCostNote}</span>
+                </Field>
+              )}
             </div>
+            {order.quotaOverrides && order.quotaOverrides.length > 0 && (
+              <div className="mt-4 rounded-md border border-warning bg-warning/5 p-3 text-xs text-warning space-y-1">
+                <p className="flex items-center gap-1.5 font-medium">
+                  <AlertTriangle className="h-4 w-4" /> Đơn này có override hạn mức
+                </p>
+                {order.quotaOverrides.map((ov, i) => (
+                  <p key={i} className="text-[11px]">
+                    {format(new Date(ov.at), "dd/MM HH:mm", { locale: vi })} •{" "}
+                    {ov.actorName} ({ov.role}) — {ov.reason}
+                  </p>
+                ))}
+              </div>
+            )}
           </CardContent>
         </Card>
 
@@ -201,6 +233,8 @@ export default function OrderDetailPage() {
           </TabsContent>
         </Tabs>
       </div>
+
+      <EditOrderInfoDialog order={order} open={editOpen} onOpenChange={setEditOpen} />
 
       <Dialog open={splitOpen} onOpenChange={setSplitOpen}>
         <DialogContent>

@@ -16,8 +16,8 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Badge } from "@/shared/ui/badge";
 import { Sparkles, Truck, Package, AlertTriangle, MapPin } from "lucide-react";
 import { formatKg } from "@/shared/utils";
-import { toast } from "sonner";
 import { AISuggestModal } from "./AISuggestModal";
+import { AcceptDispatchDialog } from "./AcceptDispatchDialog";
 import { MapCanvas } from "@/shared/map";
 import type { Driver, Order, Vehicle } from "@/shared/types";
 import Link from "next/link";
@@ -27,11 +27,10 @@ export function DispatchBoard() {
   const vehicles = useDataStore((s) => s.vehicles);
   const drivers = useDataStore((s) => s.drivers);
   const customers = useDataStore((s) => s.customers);
-  const assignOrderToVehicle = useDataStore((s) => s.assignOrderToVehicle);
-  const pushNotification = useDataStore((s) => s.pushNotification);
   const user = useAuthStore((s) => s.currentUser);
 
   const [aiOrder, setAiOrder] = useState<Order | null>(null);
+  const [acceptCtx, setAcceptCtx] = useState<{ order: Order; vehicle: Vehicle } | null>(null);
 
   const pendingOrders = useMemo(
     () => orders.filter((o) => o.status === "NEW" || o.status === "PENDING_DISPATCH"),
@@ -53,23 +52,8 @@ export function DispatchBoard() {
     const order = orders.find((o) => o.id === orderId);
     const vehicle = vehicles.find((v) => v.id === vehicleId);
     if (!order || !vehicle) return;
-    if (vehicle.capacityKg < order.weightKg) {
-      toast.error(`Vượt tải: đơn ${formatKg(order.weightKg)} > xe ${formatKg(vehicle.capacityKg)}`);
-      return;
-    }
-    const a = assignOrderToVehicle(order.id, vehicle.id, user.id);
-    if (!a) {
-      toast.error("Không phân xe được");
-      return;
-    }
-    pushNotification({
-      type: "ORDER_DISPATCHED",
-      severity: "info",
-      title: "Đã phân xe",
-      message: `${order.code} → ${vehicle.plateNumber}`,
-      targetRoles: ["DRIVER", "DISPATCHER"],
-    });
-    toast.success(`Đã phân ${order.code} cho ${vehicle.plateNumber}`);
+    // Open the acceptance dialog — actual weight check, quota check, override and assignment happen there.
+    setAcceptCtx({ order, vehicle });
   }
 
   // Map markers: pickup of pending orders + busy vehicles
@@ -186,6 +170,11 @@ export function DispatchBoard() {
       </div>
 
       <AISuggestModal order={aiOrder} open={!!aiOrder} onClose={() => setAiOrder(null)} />
+      <AcceptDispatchDialog
+        order={acceptCtx?.order ?? null}
+        vehicle={acceptCtx?.vehicle ?? null}
+        onClose={() => setAcceptCtx(null)}
+      />
     </DndContext>
   );
 }

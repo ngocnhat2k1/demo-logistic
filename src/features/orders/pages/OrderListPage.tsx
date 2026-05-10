@@ -39,12 +39,21 @@ export default function OrderListPage() {
   const sp = useSearchParams();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<string>(sp.get("status") || "ALL");
+  const [customerId, setCustomerId] = useState<string>("ALL");
+  const [fromDate, setFromDate] = useState<string>("");
+  const [toDate, setToDate] = useState<string>("");
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
 
   const filtered = useMemo(() => {
+    const fromTs = fromDate ? new Date(fromDate + "T00:00:00").getTime() : null;
+    const toTs = toDate ? new Date(toDate + "T23:59:59").getTime() : null;
     return orders.filter((o) => {
       if (status !== "ALL" && o.status !== status) return false;
+      if (customerId !== "ALL" && o.customerId !== customerId) return false;
+      const created = new Date(o.createdAt).getTime();
+      if (fromTs !== null && created < fromTs) return false;
+      if (toTs !== null && created > toTs) return false;
       if (q) {
         const c = customers.find((c) => c.id === o.customerId);
         const hay = `${o.code} ${c?.name ?? ""} ${o.dropoff.address} ${o.pickup.address}`.toLowerCase();
@@ -52,7 +61,10 @@ export default function OrderListPage() {
       }
       return true;
     });
-  }, [orders, customers, q, status]);
+  }, [orders, customers, q, status, customerId, fromDate, toDate]);
+
+  const hasActiveFilter =
+    status !== "ALL" || customerId !== "ALL" || fromDate !== "" || toDate !== "" || q !== "";
 
   return (
     <>
@@ -75,6 +87,51 @@ export default function OrderListPage() {
               ))}
             </SelectContent>
           </Select>
+          <Select value={customerId} onValueChange={setCustomerId}>
+            <SelectTrigger className="w-56">
+              <SelectValue placeholder="Tất cả khách hàng" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="ALL">Tất cả khách hàng</SelectItem>
+              {customers.map((c) => (
+                <SelectItem key={c.id} value={c.id}>
+                  {c.name} ({c.code})
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <div className="flex items-center gap-1.5">
+            <Input
+              type="date"
+              value={fromDate}
+              onChange={(e) => setFromDate(e.target.value)}
+              className="w-[150px]"
+              aria-label="Từ ngày"
+            />
+            <span className="text-xs text-muted-foreground">→</span>
+            <Input
+              type="date"
+              value={toDate}
+              onChange={(e) => setToDate(e.target.value)}
+              className="w-[150px]"
+              aria-label="Đến ngày"
+            />
+          </div>
+          {hasActiveFilter && (
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setQ("");
+                setStatus("ALL");
+                setCustomerId("ALL");
+                setFromDate("");
+                setToDate("");
+              }}
+            >
+              Xoá lọc
+            </Button>
+          )}
           <div className="ml-auto flex gap-2">
             <Button variant="outline" onClick={() => setImportOpen(true)}>
               <Upload className="h-4 w-4" /> Import Excel

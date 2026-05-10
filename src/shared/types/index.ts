@@ -137,6 +137,17 @@ export interface OrderEvent {
   at: string;
 }
 
+export interface QuotaOverrideRecord {
+  actorId: string;
+  actorName: string;
+  role: UserRole;
+  reason: string;
+  at: string;
+  customerId: string;
+  attemptedKg: number;
+  quotaSnapshot: { reserved: number; used: number; limit: number; type: QuotaType };
+}
+
 export interface Order {
   id: string;
   code: string;
@@ -145,6 +156,10 @@ export interface Order {
   pickup: Location;
   dropoff: Location;
   weightKg: number;
+  /** Trọng lượng hàng thực tế đo lúc điều độ tiếp nhận (kg). Khác weightKg khi có chênh lệch. */
+  actualWeightKg?: number;
+  /** Ghi chú chi phí phát sinh do chênh lệch trọng lượng. */
+  extraCostNote?: string;
   description: string;
   notes?: string;
   requestedDeliveryAt: string;
@@ -160,6 +175,8 @@ export interface Order {
   signature?: string; // data URL
   failureReasonId?: string;
   failureNotes?: string;
+  /** Lịch sử override hạn mức (lúc tạo và/hoặc lúc điều độ tiếp nhận). */
+  quotaOverrides?: QuotaOverrideRecord[];
 }
 
 // ----- Return -----

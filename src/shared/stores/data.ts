@@ -21,6 +21,8 @@ import type {
   QuotaTransaction,
   ReturnReasonConfig,
   Location,
+  QuotaOverrideRecord,
+  UserRole,
 } from "@/shared/types";
 import { buildSeed } from "@/shared/mock/seed";
 import { uid } from "@/shared/utils";
@@ -90,6 +92,30 @@ interface DataState {
     input: Omit<Order, "id" | "code" | "status" | "events" | "assignments" | "createdAt" | "updatedAt"> & { status?: OrderStatus }
   ) => Order;
   updateOrder: (id: string, patch: Partial<Order>) => void;
+  /** Điều độ cập nhật thông tin đơn. Có log sự kiện. Khi đổi địa điểm/khối lượng và đơn đã phân xe → tự bỏ phân xe để re-dispatch. Khi đổi khối lượng → re-check & điều chỉnh hạn mức. */
+  updateOrderInfo: (
+    id: string,
+    patch: {
+      notes?: string;
+      requestedDeliveryAt?: string;
+      description?: string;
+      extraCostNote?: string;
+      pickup?: Location;
+      dropoff?: Location;
+      weightKg?: number;
+    },
+    actorId: string
+  ) => void;
+  /** Ghi nhận trọng lượng thực tế khi điều độ tiếp nhận đơn. Tự điều chỉnh phần hạn mức đã giữ chỗ và log sự kiện. */
+  adjustOrderWeight: (orderId: string, actualKg: number, actorId: string, extraCostNote?: string) => void;
+  /** Ghi nhận override hạn mức (cần phân quyền cao). Lưu vào order.quotaOverrides + log sự kiện + push notification. */
+  applyQuotaOverride: (
+    orderId: string,
+    actorId: string,
+    actorName: string,
+    role: UserRole,
+    reason: string
+  ) => void;
   cancelOrder: (id: string, actorId: string) => void;
   setOrderStatus: (id: string, status: OrderStatus, actorId: string, payload?: Record<string, unknown>) => void;
   assignOrderToVehicle: (orderId: string, vehicleId: string, actorId: string, weightKg?: number, partLabel?: string) => DispatchAssignment | null;
@@ -524,6 +550,217 @@ export const useDataStore = create<DataState>()(
           orders: get().orders.map((o) =>
             o.id === id ? { ...o, ...patch, updatedAt: nowIso() } : o
           ),
+        });
+      },
+
+      updateOrderInfo: (id, patch, actorId) => {
+        const o = get().orders.find((x) => x.id === id);
+        if (!o) return;
+        const now = nowIso();
+        const changed: Record<string, { from: unknown; to: unknown }> = {};
+        if (patch.notes !== undefined && patch.notes !== o.notes) {
+          changed.notes = { from: o.notes ?? "", to: patch.notes };
+        }
+        if (
+          patch.requestedDeliveryAt !== undefined &&
+          patch.requestedDeliveryAt !== o.requestedDeliveryAt
+        ) {
+          changed.requestedDeliveryAt = { from: o.requestedDeliveryAt, to: patch.requestedDeliveryAt };
+        }
+        if (patch.description !== undefined && patch.description !== o.description) {
+          changed.description = { from: o.description, to: patch.description };
+        }
+        if (patch.extraCostNote !== undefined && patch.extraCostNote !== o.extraCostNote) {
+          changed.extraCostNote = { from: o.extraCostNote ?? "", to: patch.extraCostNote };
+        }
+        const pickupChanged =
+          patch.pickup !== undefined &&
+          (patch.pickup.address !== o.pickup.address ||
+            patch.pickup.lat !== o.pickup.lat ||
+            patch.pickup.lng !== o.pickup.lng);
+        const dropoffChanged =
+          patch.dropoff !== undefined &&
+          (patch.dropoff.address !== o.dropoff.address ||
+            patch.dropoff.lat !== o.dropoff.lat ||
+            patch.dropoff.lng !== o.dropoff.lng);
+        if (pickupChanged) changed.pickup = { from: o.pickup.address, to: patch.pickup!.address };
+        if (dropoffChanged) changed.dropoff = { from: o.dropoff.address, to: patch.dropoff!.address };
+
+        // Weight change → re-check & adjust quota reservation while still pre-delivery
+        const releasable: OrderStatus[] = ["NEW", "PENDING_DISPATCH", "DISPATCHED"];
+        const weightChanged =
+          patch.weightKg !== undefined &&
+          Number.isFinite(patch.weightKg) &&
+          patch.weightKg > 0 &&
+          Math.abs(patch.weightKg - o.weightKg) > 0.0001;
+        if (weightChanged) {
+          const diff = patch.weightKg! - o.weightKg;
+          changed.weightKg = { from: o.weightKg, to: patch.weightKg };
+          if (releasable.includes(o.status)) {
+            if (diff > 0) {
+              get().reserveQuota(o.customerId, diff, o.id, actorId);
+            } else {
+              get().releaseQuota(
+                o.customerId,
+                Math.abs(diff),
+                o.id,
+                actorId,
+                "Cập nhật khối lượng đơn (giảm) — hoàn hạn mức"
+              );
+            }
+          }
+        }
+
+        if (Object.keys(changed).length === 0) return;
+
+        // If pickup/dropoff/weight changed and order has assignments → free vehicles for re-dispatch
+        const needsReDispatch =
+          (pickupChanged || dropoffChanged || weightChanged) && o.assignments.length > 0;
+        if (needsReDispatch) {
+          o.assignments.forEach((a) => {
+            get().unassignOrder(o.id, a.id, actorId);
+          });
+        }
+
+        set({
+          orders: get().orders.map((x) =>
+            x.id === id
+              ? {
+                  ...x,
+                  notes: patch.notes ?? x.notes,
+                  requestedDeliveryAt: patch.requestedDeliveryAt ?? x.requestedDeliveryAt,
+                  description: patch.description ?? x.description,
+                  extraCostNote: patch.extraCostNote ?? x.extraCostNote,
+                  pickup: patch.pickup ?? x.pickup,
+                  dropoff: patch.dropoff ?? x.dropoff,
+                  weightKg: weightChanged ? patch.weightKg! : x.weightKg,
+                  updatedAt: now,
+                  events: [
+                    ...x.events,
+                    {
+                      id: uid("evt"),
+                      type: "INFO_UPDATED",
+                      payload: { changed, reDispatch: needsReDispatch || undefined },
+                      actorId,
+                      at: now,
+                    },
+                  ],
+                }
+              : x
+          ),
+        });
+
+        if (needsReDispatch) {
+          get().pushNotification({
+            type: "GENERIC",
+            severity: "warning",
+            title: "Cần điều phối lại",
+            message: `Đơn ${o.code} đã thay đổi địa điểm/khối lượng — đã bỏ phân xe, cần re-dispatch.`,
+            targetRoles: ["DISPATCHER", "OPS_MANAGER", "ADMIN"],
+          });
+        }
+      },
+
+      adjustOrderWeight: (orderId, actualKg, actorId, extraCostNote) => {
+        const o = get().orders.find((x) => x.id === orderId);
+        if (!o) return;
+        if (!Number.isFinite(actualKg) || actualKg <= 0) return;
+        const oldKg = o.weightKg;
+        const diff = actualKg - oldKg;
+        const now = nowIso();
+        // Adjust reservation only while still pre-delivery (reserved is meaningful)
+        const releasable: OrderStatus[] = ["NEW", "PENDING_DISPATCH", "DISPATCHED"];
+        if (releasable.includes(o.status) && Math.abs(diff) > 0.0001) {
+          if (diff > 0) {
+            get().reserveQuota(o.customerId, diff, o.id, actorId);
+          } else {
+            get().releaseQuota(
+              o.customerId,
+              Math.abs(diff),
+              o.id,
+              actorId,
+              "Điều chỉnh trọng lượng thực tế (giảm)"
+            );
+          }
+        }
+        set({
+          orders: get().orders.map((x) =>
+            x.id === orderId
+              ? {
+                  ...x,
+                  weightKg: actualKg,
+                  actualWeightKg: actualKg,
+                  extraCostNote: extraCostNote ?? x.extraCostNote,
+                  updatedAt: now,
+                  events: [
+                    ...x.events,
+                    {
+                      id: uid("evt"),
+                      type: "WEIGHT_ADJUSTED",
+                      payload: {
+                        declaredKg: oldKg,
+                        actualKg,
+                        diffKg: diff,
+                        extraCostNote: extraCostNote ?? null,
+                      },
+                      actorId,
+                      at: now,
+                    },
+                  ],
+                }
+              : x
+          ),
+        });
+      },
+
+      applyQuotaOverride: (orderId, actorId, actorName, role, reason) => {
+        const o = get().orders.find((x) => x.id === orderId);
+        if (!o) return;
+        const customer = get().customers.find((c) => c.id === o.customerId);
+        if (!customer) return;
+        const now = nowIso();
+        const record: QuotaOverrideRecord = {
+          actorId,
+          actorName,
+          role,
+          reason,
+          at: now,
+          customerId: customer.id,
+          attemptedKg: o.weightKg,
+          quotaSnapshot: {
+            reserved: customer.quota.reserved ?? 0,
+            used: customer.quota.used,
+            limit: customer.quota.limit,
+            type: customer.quota.type,
+          },
+        };
+        set({
+          orders: get().orders.map((x) =>
+            x.id === orderId
+              ? {
+                  ...x,
+                  quotaOverrides: [...(x.quotaOverrides ?? []), record],
+                  updatedAt: now,
+                  events: [
+                    ...x.events,
+                    {
+                      id: uid("evt"),
+                      type: "QUOTA_OVERRIDE",
+                      payload: { ...record },
+                      actorId,
+                      at: now,
+                    },
+                  ],
+                }
+              : x
+          ),
+        });
+        get().pushNotification({
+          type: "QUOTA_WARNING",
+          severity: "warning",
+          title: "Override hạn mức",
+          message: `${actorName} (${role}) override hạn mức KH ${customer.name} cho đơn ${o.code}: ${reason}`,
+          targetRoles: ["ADMIN", "OPS_MANAGER"],
         });
       },
 
