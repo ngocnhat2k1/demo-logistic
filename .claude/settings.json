@@ -5,7 +5,10 @@
       "Bash(xargs sed -i '' 's|@/lib/utils|@/shared/utils|g')",
       "Bash(mkdir -p /Users/ngocnhat/.claude/skills/nextjs-feature-first-refactor/evals)",
       "Edit(~/.claude/skills/nextjs-feature-first-refactor/**)",
-      "Bash(rm -rf /tmp/nextjs-eval-test && echo \"cleaned\")"
+      "Bash(rm -rf /tmp/nextjs-eval-test && echo \"cleaned\")",
+      "Bash(npm config *)",
+      "Bash(npm ping *)",
+      "Bash(curl -sS -o /dev/null -w \"%{http_code}\\\\n\" https://registry.npmjs.org/)"
     ],
     "additionalDirectories": [
       "/Users/ngocnhat/.claude/skills/nextjs-feature-first-refactor",
