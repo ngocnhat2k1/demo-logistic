@@ -1,7 +1,8 @@
 "use client";
 
-import { Bell, AlertTriangle } from "lucide-react";
+import { Bell, AlertTriangle, Menu } from "lucide-react";
 import { useDataStore } from "@/shared/stores/data";
+import { useUIStore } from "@/shared/stores/ui";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -22,10 +23,22 @@ export function Topbar({ title }: { title: string }) {
   const sosAll = useDataStore((s) => s.sos);
   const sos = sosAll.filter((s) => !s.resolved);
   const unread = notifications.filter((n) => !n.read).length;
+  const openMobileNav = useUIStore((s) => s.openMobileNav);
 
   return (
-    <header className="flex h-14 items-center justify-between border-b bg-card px-4 md:px-6">
-      <h1 className="text-lg font-semibold">{title}</h1>
+    <header className="flex h-14 items-center justify-between border-b bg-card px-3 md:px-6 gap-2">
+      <div className="flex items-center gap-2 min-w-0">
+        <Button
+          variant="ghost"
+          size="icon"
+          className="md:hidden -ml-1 shrink-0"
+          aria-label="Mở menu"
+          onClick={openMobileNav}
+        >
+          <Menu className="h-5 w-5" />
+        </Button>
+        <h1 className="text-base md:text-lg font-semibold truncate">{title}</h1>
+      </div>
       <div className="flex items-center gap-2">
         {sos.length > 0 && (
           <Link
