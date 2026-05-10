@@ -124,11 +124,34 @@ interface DataState {
   reportDeliveryFailure: (orderId: string, reasonId: string, notes: string, photos: string[], actorId: string) => void;
   completeDelivery: (orderId: string, signature: string | undefined, photos: string[], actorId: string) => void;
 
+  // carriers (nhà xe)
+  addCarrier: (input: { code: string; name: string; type: Carrier["type"]; contactPhone: string }) => Carrier;
+  updateCarrier: (id: string, patch: Partial<Omit<Carrier, "id">>) => void;
+  deleteCarrier: (id: string) => { ok: boolean; reason?: string };
+
   // vehicles
+  addVehicle: (input: {
+    plateNumber: string;
+    capacityKg: number;
+    type: Vehicle["type"];
+    carrierId: string;
+    currentDriverId?: string;
+  }) => Vehicle;
+  updateVehicle: (id: string, patch: Partial<Omit<Vehicle, "id">>) => void;
+  deleteVehicle: (id: string) => { ok: boolean; reason?: string };
   setVehicleStatus: (vehicleId: string, status: Vehicle["status"]) => void;
   setVehicleLocation: (vehicleId: string, lat: number, lng: number, progress?: number) => void;
 
   // drivers
+  addDriver: (input: {
+    fullName: string;
+    phone: string;
+    licenseClass: Driver["licenseClass"];
+    carrierId: string;
+    currentVehicleId?: string;
+  }) => Driver;
+  updateDriver: (id: string, patch: Partial<Omit<Driver, "id">>) => void;
+  deleteDriver: (id: string) => { ok: boolean; reason?: string };
   setDriverStatus: (driverId: string, status: Driver["status"]) => void;
 
   // notifications
@@ -1092,6 +1115,153 @@ export const useDataStore = create<DataState>()(
         set({
           drivers: get().drivers.map((d) => (d.id === driverId ? { ...d, status } : d)),
         });
+      },
+
+      // ----- carriers -----
+      addCarrier: (input) => {
+        const c: Carrier = {
+          id: uid("carrier"),
+          code: input.code.trim().toUpperCase(),
+          name: input.name.trim(),
+          type: input.type,
+          contactPhone: input.contactPhone.trim(),
+        };
+        set({ carriers: [...get().carriers, c] });
+        return c;
+      },
+      updateCarrier: (id, patch) => {
+        set({
+          carriers: get().carriers.map((c) =>
+            c.id === id
+              ? {
+                  ...c,
+                  ...patch,
+                  code: patch.code ? patch.code.trim().toUpperCase() : c.code,
+                }
+              : c
+          ),
+        });
+      },
+      deleteCarrier: (id) => {
+        const hasVehicles = get().vehicles.some((v) => v.carrierId === id);
+        const hasDrivers = get().drivers.some((d) => d.carrierId === id);
+        if (hasVehicles || hasDrivers) {
+          return {
+            ok: false,
+            reason: "Nhà xe vẫn còn xe hoặc tài xế trực thuộc — vui lòng xoá / chuyển trước.",
+          };
+        }
+        set({ carriers: get().carriers.filter((c) => c.id !== id) });
+        return { ok: true };
+      },
+
+      // ----- vehicles -----
+      addVehicle: (input) => {
+        const v: Vehicle = {
+          id: uid("vehicle"),
+          plateNumber: input.plateNumber.trim().toUpperCase(),
+          capacityKg: input.capacityKg,
+          type: input.type,
+          carrierId: input.carrierId,
+          status: "AVAILABLE",
+          currentLocation: { lat: 10.776, lng: 106.7 },
+          currentDriverId: input.currentDriverId,
+        };
+        set({ vehicles: [...get().vehicles, v] });
+        if (input.currentDriverId) {
+          set({
+            drivers: get().drivers.map((d) =>
+              d.id === input.currentDriverId ? { ...d, currentVehicleId: v.id } : d
+            ),
+          });
+        }
+        return v;
+      },
+      updateVehicle: (id, patch) => {
+        const prev = get().vehicles.find((v) => v.id === id);
+        if (!prev) return;
+        const next: Vehicle = {
+          ...prev,
+          ...patch,
+          plateNumber: patch.plateNumber ? patch.plateNumber.trim().toUpperCase() : prev.plateNumber,
+        };
+        set({ vehicles: get().vehicles.map((v) => (v.id === id ? next : v)) });
+        // Sync driver assignment when driver changes
+        if (patch.currentDriverId !== undefined && patch.currentDriverId !== prev.currentDriverId) {
+          set({
+            drivers: get().drivers.map((d) => {
+              if (d.id === prev.currentDriverId) return { ...d, currentVehicleId: undefined };
+              if (d.id === patch.currentDriverId) return { ...d, currentVehicleId: id };
+              return d;
+            }),
+          });
+        }
+      },
+      deleteVehicle: (id) => {
+        const v = get().vehicles.find((x) => x.id === id);
+        if (!v) return { ok: false, reason: "Không tìm thấy xe" };
+        if (v.status === "BUSY" || v.activeAssignmentId) {
+          return { ok: false, reason: "Xe đang có chuyến — không thể xoá" };
+        }
+        set({
+          vehicles: get().vehicles.filter((x) => x.id !== id),
+          drivers: get().drivers.map((d) =>
+            d.currentVehicleId === id ? { ...d, currentVehicleId: undefined } : d
+          ),
+        });
+        return { ok: true };
+      },
+
+      // ----- drivers -----
+      addDriver: (input) => {
+        const d: Driver = {
+          id: uid("driver"),
+          fullName: input.fullName.trim(),
+          phone: input.phone.trim(),
+          licenseClass: input.licenseClass,
+          status: "AVAILABLE",
+          carrierId: input.carrierId,
+          currentVehicleId: input.currentVehicleId,
+          routeHistoryCount: 0,
+        };
+        set({ drivers: [...get().drivers, d] });
+        if (input.currentVehicleId) {
+          set({
+            vehicles: get().vehicles.map((v) =>
+              v.id === input.currentVehicleId ? { ...v, currentDriverId: d.id } : v
+            ),
+          });
+        }
+        return d;
+      },
+      updateDriver: (id, patch) => {
+        const prev = get().drivers.find((d) => d.id === id);
+        if (!prev) return;
+        const next: Driver = { ...prev, ...patch };
+        set({ drivers: get().drivers.map((d) => (d.id === id ? next : d)) });
+        if (patch.currentVehicleId !== undefined && patch.currentVehicleId !== prev.currentVehicleId) {
+          set({
+            vehicles: get().vehicles.map((v) => {
+              if (v.id === prev.currentVehicleId) return { ...v, currentDriverId: undefined };
+              if (v.id === patch.currentVehicleId) return { ...v, currentDriverId: id };
+              return v;
+            }),
+          });
+        }
+      },
+      deleteDriver: (id) => {
+        const d = get().drivers.find((x) => x.id === id);
+        if (!d) return { ok: false, reason: "Không tìm thấy tài xế" };
+        if (d.status === "BUSY") {
+          return { ok: false, reason: "Tài xế đang có chuyến — không thể xoá" };
+        }
+        set({
+          drivers: get().drivers.filter((x) => x.id !== id),
+          vehicles: get().vehicles.map((v) =>
+            v.currentDriverId === id ? { ...v, currentDriverId: undefined } : v
+          ),
+        });
+        return { ok: true };
       },
 
       setVehicleLocation: (vehicleId, lat, lng, progress) => {
