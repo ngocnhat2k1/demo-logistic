@@ -19,6 +19,7 @@ import { useState } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/shared/ui/dialog";
 import { Input, Label } from "@/shared/ui/input";
 import { EditOrderInfoDialog } from "@/features/orders/components/EditOrderInfoDialog";
+import { OrderRouteMap } from "@/features/orders/components/OrderRouteMap";
 
 export default function OrderDetailPage() {
   const router = useRouter();
@@ -152,12 +153,21 @@ export default function OrderDetailPage() {
           </CardContent>
         </Card>
 
-        <Tabs defaultValue="assignments">
+        <Tabs defaultValue="route">
           <TabsList>
+            <TabsTrigger value="route">Lộ trình</TabsTrigger>
             <TabsTrigger value="assignments">Phân xe ({order.assignments.length})</TabsTrigger>
             <TabsTrigger value="timeline">Lịch sử</TabsTrigger>
             <TabsTrigger value="documents">Chứng từ</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="route">
+            <Card>
+              <CardContent className="p-3">
+                <OrderRouteMap order={order} />
+              </CardContent>
+            </Card>
+          </TabsContent>
 
           <TabsContent value="assignments">
             <Card>
