@@ -2,11 +2,13 @@
 
 import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useState } from "react";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
-import { ArrowLeft, CalendarClock, FileCheck2, MapPin, Package, PenLine, Route, Truck, UserRound } from "lucide-react";
+import { ArrowLeft, CalendarClock, FileCheck2, MapPin, Package, PenLine, Pencil, Route, Truck, UserRound } from "lucide-react";
 import { StatusBadge } from "@/features/orders/components/StatusBadge";
-import { ORDER_STATUS_LABEL } from "@/features/orders/domain/orderStatus";
+import { ORDER_STATUS_LABEL, canEdit } from "@/features/orders/domain/orderStatus";
+import { EditOrderInfoDialog } from "@/features/orders/components/EditOrderInfoDialog";
 import { useAuthStore } from "@/features/auth/stores/auth";
 import { useDataStore } from "@/shared/stores/data";
 import { MapCanvas } from "@/shared/map";
@@ -24,7 +26,7 @@ export default function CustomerOrderDetailPage() {
   const customer = useDataStore((s) => s.customers.find((c) => c.id === user?.customerId));
   const order = useDataStore((s) => s.orders.find((o) => o.id === id));
   const vehicles = useDataStore((s) => s.vehicles);
-  const drivers = useDataStore((s) => s.drivers);
+  const [editOpen, setEditOpen] = useState(false);
 
   if (!customer || !order || order.customerId !== customer.id) {
     return (
@@ -45,7 +47,7 @@ export default function CustomerOrderDetailPage() {
 
   const assignment = order.assignments[0];
   const vehicle = assignment ? vehicles.find((v) => v.id === assignment.vehicleId) : undefined;
-  const driver = assignment ? drivers.find((d) => d.id === assignment.driverId) : undefined;
+  const driverName = vehicle?.driverName;
   const progress = estimateProgress(order, vehicle?.routeProgress);
   const markers: MapMarker[] = [
     {
@@ -68,7 +70,7 @@ export default function CustomerOrderDetailPage() {
       id: vehicle.id,
       lat: vehicle.currentLocation.lat,
       lng: vehicle.currentLocation.lng,
-      popup: `${vehicle.plateNumber} • ${driver?.fullName ?? "Tài xế"}`,
+      popup: `${vehicle.plateNumber} • ${driverName ?? "Tài xế"}`,
       kind: vehicle.status === "BUSY" ? "vehicle-busy" : "vehicle-idle",
     });
   }
@@ -91,6 +93,11 @@ export default function CustomerOrderDetailPage() {
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline">{customer.code}</Badge>
           <StatusBadge status={order.status} />
+          {canEdit(order.status) && (
+            <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
+              <Pencil className="h-4 w-4" /> Sửa thông tin
+            </Button>
+          )}
         </div>
       </div>
 
@@ -129,7 +136,7 @@ export default function CustomerOrderDetailPage() {
               <InfoTile icon={<Package className="h-4 w-4" />} label="Khối lượng" value={formatKg(order.weightKg)} />
               <InfoTile icon={<CalendarClock className="h-4 w-4" />} label="Hẹn giao" value={formatDate(order.requestedDeliveryAt)} />
               <InfoTile icon={<Truck className="h-4 w-4" />} label="Xe" value={vehicle?.plateNumber ?? "Chưa phân xe"} />
-              <InfoTile icon={<UserRound className="h-4 w-4" />} label="Tài xế" value={driver?.fullName ?? "Chưa có"} />
+              <InfoTile icon={<UserRound className="h-4 w-4" />} label="Tài xế" value={driverName ?? "Chưa có"} />
             </div>
             <RouteBox label="Điểm lấy" address={order.pickup.address} contact={contactLine(order.pickup.contactName, order.pickup.contactPhone)} />
             <RouteBox label="Điểm giao" address={order.dropoff.address} contact={contactLine(order.dropoff.contactName, order.dropoff.contactPhone)} />
@@ -185,6 +192,8 @@ export default function CustomerOrderDetailPage() {
           </CardContent>
         </Card>
       </div>
+
+      <EditOrderInfoDialog order={order} open={editOpen} onOpenChange={setEditOpen} />
     </div>
   );
 }

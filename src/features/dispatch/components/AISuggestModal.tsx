@@ -17,12 +17,11 @@ interface Props {
 
 export function AISuggestModal({ order, open, onClose }: Props) {
   const vehicles = useDataStore((s) => s.vehicles);
-  const drivers = useDataStore((s) => s.drivers);
   const assign = useDataStore((s) => s.assignOrderToVehicle);
   const pushNotification = useDataStore((s) => s.pushNotification);
   const user = useAuthStore((s) => s.currentUser);
 
-  const suggestions = order ? suggestVehicles({ order, vehicles, drivers }) : [];
+  const suggestions = order ? suggestVehicles({ order, vehicles }) : [];
 
   function pick(vehicleId: string) {
     if (!order || !user) return;

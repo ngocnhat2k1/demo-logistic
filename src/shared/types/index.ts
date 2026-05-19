@@ -26,7 +26,8 @@ export interface User {
   email: string;
   fullName: string;
   role: UserRole;
-  driverId?: string;
+  /** With merged Vehicle+Driver model, drivers log in as the vehicle they own (1:1). */
+  vehicleId?: string;
   customerId?: string;
 }
 
@@ -68,7 +69,7 @@ export interface Customer {
   createdAt: string;
 }
 
-// ----- Carrier / Vehicle / Driver -----
+// ----- Carrier / Vehicle (merged with Driver: 1 vehicle = 1 driver) -----
 export interface Carrier {
   id: string;
   code: string; // TTM, VNA, DXP, BACKUP
@@ -77,8 +78,22 @@ export interface Carrier {
   contactPhone: string;
 }
 
-export type VehicleStatus = "AVAILABLE" | "BUSY" | "MAINTENANCE" | "BROKEN";
+export type VehicleStatus = "AVAILABLE" | "BUSY" | "MAINTENANCE" | "BROKEN" | "OFF_DUTY";
 export type VehicleType = "BOX" | "TANK" | "CONTAINER" | "FLATBED";
+export type LicenseClass = "B2" | "C" | "D" | "E" | "FC";
+
+export interface OdometerEntry {
+  id: string;
+  /** Total odometer reading at time of recording (km). */
+  km: number;
+  /** Distance added since the previous reading (km). */
+  addedKm: number;
+  recordedAt: string; // ISO
+  recordedBy: string; // userId
+  orderId?: string;
+  orderCode?: string;
+  note?: string;
+}
 
 export interface Vehicle {
   id: string;
@@ -88,25 +103,28 @@ export interface Vehicle {
   carrierId: string;
   status: VehicleStatus;
   currentLocation: LatLng;
-  currentDriverId?: string;
   speedKmh?: number;
   lastGpsUpdate?: string;
   routePolyline?: LatLng[];
   routeProgress?: number; // 0..1
   activeAssignmentId?: string;
-}
 
-export type DriverStatus = "AVAILABLE" | "BUSY" | "OFF_DUTY";
-
-export interface Driver {
-  id: string;
-  fullName: string;
-  phone: string;
-  licenseClass: "B2" | "C" | "D" | "E" | "FC";
-  status: DriverStatus;
-  currentVehicleId?: string;
-  carrierId: string;
+  // ----- Merged driver fields (1 vehicle = 1 driver) -----
+  driverName: string;
+  driverPhone: string;
+  driverLicenseClass: LicenseClass;
+  /** How many completed trips this vehicle/driver has done (analytics). */
   routeHistoryCount?: number;
+
+  // ----- Odometer / maintenance -----
+  /** Current cumulative odometer reading (km). */
+  odometerKm: number;
+  /** Odometer reading at the most recent maintenance reset (km). */
+  lastMaintenanceOdometerKm: number;
+  /** Interval between maintenance cycles (km). Defaults to 10000. */
+  maintenanceIntervalKm: number;
+  /** Most recent odometer reading entries (latest first, capped). */
+  odometerHistory: OdometerEntry[];
 }
 
 // ----- Order -----
@@ -128,7 +146,6 @@ export interface DispatchAssignment {
   id: string;
   orderId: string;
   vehicleId: string;
-  driverId: string;
   weightKg: number;
   partLabel?: string;
   assignedAt: string;
@@ -254,7 +271,6 @@ export interface MockMessage {
 // ----- SOS -----
 export interface SosAlert {
   id: string;
-  driverId: string;
   vehicleId: string;
   location: LatLng;
   orderIds: string[];

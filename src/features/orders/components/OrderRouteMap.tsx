@@ -24,11 +24,10 @@ export function OrderRouteMap({
   showInfoBar = true,
 }: OrderRouteMapProps) {
   const vehicles = useDataStore((s) => s.vehicles);
-  const drivers = useDataStore((s) => s.drivers);
 
   const asg = order.assignments[0];
   const vehicle = asg ? vehicles.find((v) => v.id === asg.vehicleId) : undefined;
-  const driver = asg ? drivers.find((d) => d.id === asg.driverId) : undefined;
+  const driverName = vehicle?.driverName;
 
   const isAssigned = !!asg;
   const isDelivered = order.status === "DELIVERED";
@@ -75,13 +74,13 @@ export function OrderRouteMap({
         lng: vehicle.currentLocation.lng,
         kind: vehicle.status === "BUSY" ? "vehicle-busy" : "vehicle-idle",
         popup: `<b>${escapeHtml(vehicle.plateNumber)}</b><br/>${escapeHtml(
-          driver?.fullName ?? "—",
+          driverName ?? "—",
         )}<br/>Tốc độ: ${vehicle.speedKmh ?? 0} km/h<br/>Tiến độ: ${pct}%`,
       });
     }
 
     return list;
-  }, [order.id, order.pickup, order.dropoff, vehicle, driver]);
+  }, [order.id, order.pickup, order.dropoff, vehicle, driverName]);
 
   const polylines = useMemo<MapPolyline[]>(() => {
     const points: LatLng[] =
@@ -116,7 +115,7 @@ export function OrderRouteMap({
         <InfoBar
           order={order}
           vehiclePlate={vehicle?.plateNumber}
-          driverName={driver?.fullName}
+          driverName={driverName}
           progressPct={progressPct}
           speedKmh={vehicle?.speedKmh}
           lastGpsUpdate={vehicle?.lastGpsUpdate}

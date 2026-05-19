@@ -6,7 +6,6 @@ import { idbStorage } from "@/shared/db/persist";
 import type {
   Carrier,
   Customer,
-  Driver,
   Order,
   ReturnOrder,
   Vehicle,
@@ -23,15 +22,19 @@ import type {
   Location,
   QuotaOverrideRecord,
   UserRole,
+  OdometerEntry,
+  LicenseClass,
 } from "@/shared/types";
 import { buildSeed } from "@/shared/mock/seed";
 import { uid } from "@/shared/utils";
 import { buildPolyline } from "@/shared/mock/geo";
 
+const ODOMETER_HISTORY_CAP = 30;
+const DEFAULT_MAINTENANCE_INTERVAL_KM = 10000;
+
 interface DataState {
   customers: Customer[];
   vehicles: Vehicle[];
-  drivers: Driver[];
   carriers: Carrier[];
   orders: Order[];
   returns: ReturnOrder[];
@@ -92,7 +95,6 @@ interface DataState {
     input: Omit<Order, "id" | "code" | "status" | "events" | "assignments" | "createdAt" | "updatedAt"> & { status?: OrderStatus }
   ) => Order;
   updateOrder: (id: string, patch: Partial<Order>) => void;
-  /** Điều độ cập nhật thông tin đơn. Có log sự kiện. Khi đổi địa điểm/khối lượng và đơn đã phân xe → tự bỏ phân xe để re-dispatch. Khi đổi khối lượng → re-check & điều chỉnh hạn mức. */
   updateOrderInfo: (
     id: string,
     patch: {
@@ -106,9 +108,7 @@ interface DataState {
     },
     actorId: string
   ) => void;
-  /** Ghi nhận trọng lượng thực tế khi điều độ tiếp nhận đơn. Tự điều chỉnh phần hạn mức đã giữ chỗ và log sự kiện. */
   adjustOrderWeight: (orderId: string, actualKg: number, actorId: string, extraCostNote?: string) => void;
-  /** Ghi nhận override hạn mức (cần phân quyền cao). Lưu vào order.quotaOverrides + log sự kiện + push notification. */
   applyQuotaOverride: (
     orderId: string,
     actorId: string,
@@ -120,39 +120,49 @@ interface DataState {
   setOrderStatus: (id: string, status: OrderStatus, actorId: string, payload?: Record<string, unknown>) => void;
   assignOrderToVehicle: (orderId: string, vehicleId: string, actorId: string, weightKg?: number, partLabel?: string) => DispatchAssignment | null;
   unassignOrder: (orderId: string, assignmentId: string, actorId: string) => void;
-  splitOrder: (orderId: string, parts: number[]) => string[]; // returns new order ids
+  splitOrder: (orderId: string, parts: number[]) => string[];
   reportDeliveryFailure: (orderId: string, reasonId: string, notes: string, photos: string[], actorId: string) => void;
-  completeDelivery: (orderId: string, signature: string | undefined, photos: string[], actorId: string) => void;
+  completeDelivery: (
+    orderId: string,
+    signature: string | undefined,
+    photos: string[],
+    actorId: string,
+    odometerKm?: number
+  ) => void;
 
   // carriers (nhà xe)
   addCarrier: (input: { code: string; name: string; type: Carrier["type"]; contactPhone: string }) => Carrier;
   updateCarrier: (id: string, patch: Partial<Omit<Carrier, "id">>) => void;
   deleteCarrier: (id: string) => { ok: boolean; reason?: string };
 
-  // vehicles
+  // vehicles (merged with driver)
   addVehicle: (input: {
     plateNumber: string;
     capacityKg: number;
     type: Vehicle["type"];
     carrierId: string;
-    currentDriverId?: string;
+    driverName: string;
+    driverPhone: string;
+    driverLicenseClass: LicenseClass;
+    odometerKm?: number;
+    maintenanceIntervalKm?: number;
   }) => Vehicle;
-  updateVehicle: (id: string, patch: Partial<Omit<Vehicle, "id">>) => void;
+  updateVehicle: (
+    id: string,
+    patch: Partial<Omit<Vehicle, "id" | "odometerHistory">>
+  ) => void;
   deleteVehicle: (id: string) => { ok: boolean; reason?: string };
   setVehicleStatus: (vehicleId: string, status: Vehicle["status"]) => void;
   setVehicleLocation: (vehicleId: string, lat: number, lng: number, progress?: number) => void;
-
-  // drivers
-  addDriver: (input: {
-    fullName: string;
-    phone: string;
-    licenseClass: Driver["licenseClass"];
-    carrierId: string;
-    currentVehicleId?: string;
-  }) => Driver;
-  updateDriver: (id: string, patch: Partial<Omit<Driver, "id">>) => void;
-  deleteDriver: (id: string) => { ok: boolean; reason?: string };
-  setDriverStatus: (driverId: string, status: Driver["status"]) => void;
+  /** Record a new odometer reading. Computes delta from previous, appends to history. */
+  recordOdometer: (
+    vehicleId: string,
+    km: number,
+    actorId: string,
+    context?: { orderId?: string; orderCode?: string; note?: string }
+  ) => { ok: boolean; reason?: string; entry?: OdometerEntry };
+  /** Mark a vehicle as just maintained — resets the lastMaintenanceOdometerKm baseline. */
+  markVehicleMaintained: (vehicleId: string, actorId: string) => void;
 
   // notifications
   pushNotification: (n: Omit<AppNotification, "id" | "createdAt" | "read">) => void;
@@ -162,7 +172,7 @@ interface DataState {
   pushMessage: (m: Omit<MockMessage, "id" | "createdAt">) => void;
 
   // sos
-  raiseSos: (driverId: string, vehicleId: string, location: { lat: number; lng: number }, orderIds: string[], message?: string) => SosAlert;
+  raiseSos: (vehicleId: string, location: { lat: number; lng: number }, orderIds: string[], message?: string) => SosAlert;
   resolveSos: (id: string) => void;
 
   // cyber
@@ -173,7 +183,6 @@ interface DataState {
 const empty = {
   customers: [],
   vehicles: [],
-  drivers: [],
   carriers: [],
   orders: [],
   returns: [],
@@ -307,7 +316,6 @@ export const useDataStore = create<DataState>()(
         };
 
         if (oldType !== newType) {
-          // Reset balances when switching quota type — keep history
           quota = {
             ...quota,
             limit: isPostpaidNew ? 0 : input.quotaLimitKg,
@@ -598,7 +606,6 @@ export const useDataStore = create<DataState>()(
           updatedAt: now,
         };
         set({ orders: [order, ...orders] });
-        // reserve quota immediately upon creation
         get().reserveQuota(input.customerId, input.weightKg, order.id, "user");
         return order;
       },
@@ -644,7 +651,6 @@ export const useDataStore = create<DataState>()(
         if (pickupChanged) changed.pickup = { from: o.pickup.address, to: patch.pickup!.address };
         if (dropoffChanged) changed.dropoff = { from: o.dropoff.address, to: patch.dropoff!.address };
 
-        // Weight change → re-check & adjust quota reservation while still pre-delivery
         const releasable: OrderStatus[] = ["NEW", "PENDING_DISPATCH", "DISPATCHED"];
         const weightChanged =
           patch.weightKg !== undefined &&
@@ -671,7 +677,6 @@ export const useDataStore = create<DataState>()(
 
         if (Object.keys(changed).length === 0) return;
 
-        // If pickup/dropoff/weight changed and order has assignments → free vehicles for re-dispatch
         const needsReDispatch =
           (pickupChanged || dropoffChanged || weightChanged) && o.assignments.length > 0;
         if (needsReDispatch) {
@@ -726,7 +731,6 @@ export const useDataStore = create<DataState>()(
         const oldKg = o.weightKg;
         const diff = actualKg - oldKg;
         const now = nowIso();
-        // Adjust reservation only while still pre-delivery (reserved is meaningful)
         const releasable: OrderStatus[] = ["NEW", "PENDING_DISPATCH", "DISPATCHED"];
         if (releasable.includes(o.status) && Math.abs(diff) > 0.0001) {
           if (diff > 0) {
@@ -825,7 +829,6 @@ export const useDataStore = create<DataState>()(
       cancelOrder: (id, actorId) => {
         const order = get().orders.find((o) => o.id === id);
         if (!order) return;
-        // refund reserved quota if order had not yet been delivered/failed
         const releasable: OrderStatus[] = [
           "NEW",
           "PENDING_DISPATCH",
@@ -836,13 +839,20 @@ export const useDataStore = create<DataState>()(
         if (releasable.includes(order.status)) {
           get().releaseQuota(order.customerId, order.weightKg, order.id, actorId, "Hủy đơn — hoàn hạn mức");
         }
-        // free vehicles
         order.assignments.forEach((a) => {
           const v = get().vehicles.find((x) => x.id === a.vehicleId);
           if (v && v.activeAssignmentId === a.id) {
             set({
               vehicles: get().vehicles.map((x) =>
-                x.id === v.id ? { ...x, status: "AVAILABLE", activeAssignmentId: undefined, routePolyline: undefined, routeProgress: undefined } : x
+                x.id === v.id
+                  ? {
+                      ...x,
+                      status: "AVAILABLE",
+                      activeAssignmentId: undefined,
+                      routePolyline: undefined,
+                      routeProgress: undefined,
+                    }
+                  : x
               ),
             });
           }
@@ -892,13 +902,11 @@ export const useDataStore = create<DataState>()(
         if (!order || !vehicle) return null;
         const w = weightKg ?? order.weightKg;
         if (vehicle.capacityKg < w) return null;
-        const driverId = vehicle.currentDriverId;
-        if (!driverId) return null;
+        if (vehicle.status !== "AVAILABLE") return null;
         const assignment: DispatchAssignment = {
           id: uid("dasg"),
           orderId,
           vehicleId,
-          driverId,
           weightKg: w,
           partLabel,
           assignedAt: nowIso(),
@@ -918,7 +926,7 @@ export const useDataStore = create<DataState>()(
                     {
                       id: uid("evt"),
                       type: "DISPATCHED",
-                      payload: { vehicleId, driverId, weightKg: w, partLabel },
+                      payload: { vehicleId, weightKg: w, partLabel },
                       actorId,
                       at: nowIso(),
                     },
@@ -938,7 +946,6 @@ export const useDataStore = create<DataState>()(
                 }
               : v
           ),
-          drivers: get().drivers.map((d) => (d.id === driverId ? { ...d, status: "BUSY" } : d)),
         });
         return assignment;
       },
@@ -966,10 +973,15 @@ export const useDataStore = create<DataState>()(
           ),
           vehicles: get().vehicles.map((v) =>
             v.id === a.vehicleId
-              ? { ...v, status: "AVAILABLE", activeAssignmentId: undefined, routePolyline: undefined, routeProgress: undefined }
+              ? {
+                  ...v,
+                  status: "AVAILABLE",
+                  activeAssignmentId: undefined,
+                  routePolyline: undefined,
+                  routeProgress: undefined,
+                }
               : v
           ),
-          drivers: get().drivers.map((d) => (d.id === a.driverId ? { ...d, status: "AVAILABLE" } : d)),
         });
       },
 
@@ -1004,7 +1016,6 @@ export const useDataStore = create<DataState>()(
             updatedAt: now,
           };
         });
-        // mark original as cancelled (replaced by parts)
         set({
           orders: [
             ...get()
@@ -1030,7 +1041,6 @@ export const useDataStore = create<DataState>()(
             ...newOrders,
           ],
         });
-        // Quota: parent's reserved amount equals sum of parts; net zero — log as a single audit pair
         get().releaseQuota(order.customerId, order.weightKg, order.id, "user", "Tách đơn — giải phóng đơn gốc");
         for (const child of newOrders) {
           get().reserveQuota(order.customerId, child.weightKg, child.id, "user");
@@ -1062,6 +1072,22 @@ export const useDataStore = create<DataState>()(
           vehicleId: order.assignments[0]?.vehicleId,
           createdAt: now,
         };
+        const a = order.assignments[0];
+        if (a) {
+          set({
+            vehicles: get().vehicles.map((v) =>
+              v.id === a.vehicleId
+                ? {
+                    ...v,
+                    status: "AVAILABLE",
+                    activeAssignmentId: undefined,
+                    routePolyline: undefined,
+                    routeProgress: undefined,
+                  }
+                : v
+            ),
+          });
+        }
         set({
           orders: get().orders.map((o) =>
             o.id === orderId
@@ -1087,7 +1113,6 @@ export const useDataStore = create<DataState>()(
           ),
           returns: [ret, ...get().returns],
         });
-        // Quota: release the refunded portion; convert the rest from reserved → used (charged to customer)
         if (refundedKg > 0) {
           get().releaseQuota(
             order.customerId,
@@ -1102,23 +1127,34 @@ export const useDataStore = create<DataState>()(
         }
       },
 
-      completeDelivery: (orderId, signature, photos, actorId) => {
+      completeDelivery: (orderId, signature, photos, actorId, odometerKm) => {
         const order = get().orders.find((o) => o.id === orderId);
         if (!order) return;
         const now = nowIso();
-        // consume reserved → used (POSTPAID also bumps outstanding)
         get().consumeReservedQuota(order.customerId, order.weightKg, order.id, actorId);
-        // free vehicle
         const a = order.assignments[0];
         if (a) {
           set({
             vehicles: get().vehicles.map((v) =>
               v.id === a.vehicleId
-                ? { ...v, status: "AVAILABLE", activeAssignmentId: undefined, routePolyline: undefined, routeProgress: undefined }
+                ? {
+                    ...v,
+                    status: "AVAILABLE",
+                    activeAssignmentId: undefined,
+                    routePolyline: undefined,
+                    routeProgress: undefined,
+                    routeHistoryCount: (v.routeHistoryCount ?? 0) + 1,
+                  }
                 : v
             ),
-            drivers: get().drivers.map((d) => (d.id === a.driverId ? { ...d, status: "AVAILABLE" } : d)),
           });
+          if (typeof odometerKm === "number" && Number.isFinite(odometerKm) && odometerKm > 0) {
+            get().recordOdometer(a.vehicleId, odometerKm, actorId, {
+              orderId: order.id,
+              orderCode: order.code,
+              note: "Ghi nhận khi hoàn thành đơn",
+            });
+          }
         }
         set({
           orders: get().orders.map((o) =>
@@ -1143,12 +1179,6 @@ export const useDataStore = create<DataState>()(
       setVehicleStatus: (vehicleId, status) => {
         set({
           vehicles: get().vehicles.map((v) => (v.id === vehicleId ? { ...v, status } : v)),
-        });
-      },
-
-      setDriverStatus: (driverId, status) => {
-        set({
-          drivers: get().drivers.map((d) => (d.id === driverId ? { ...d, status } : d)),
         });
       },
 
@@ -1179,19 +1209,19 @@ export const useDataStore = create<DataState>()(
       },
       deleteCarrier: (id) => {
         const hasVehicles = get().vehicles.some((v) => v.carrierId === id);
-        const hasDrivers = get().drivers.some((d) => d.carrierId === id);
-        if (hasVehicles || hasDrivers) {
+        if (hasVehicles) {
           return {
             ok: false,
-            reason: "Nhà xe vẫn còn xe hoặc tài xế trực thuộc — vui lòng xoá / chuyển trước.",
+            reason: "Nhà xe vẫn còn xe trực thuộc — vui lòng xoá / chuyển trước.",
           };
         }
         set({ carriers: get().carriers.filter((c) => c.id !== id) });
         return { ok: true };
       },
 
-      // ----- vehicles -----
+      // ----- vehicles (merged with driver) -----
       addVehicle: (input) => {
+        const odometerKm = Math.max(0, Math.round(input.odometerKm ?? 0));
         const v: Vehicle = {
           id: uid("vehicle"),
           plateNumber: input.plateNumber.trim().toUpperCase(),
@@ -1200,16 +1230,16 @@ export const useDataStore = create<DataState>()(
           carrierId: input.carrierId,
           status: "AVAILABLE",
           currentLocation: { lat: 10.776, lng: 106.7 },
-          currentDriverId: input.currentDriverId,
+          driverName: input.driverName.trim(),
+          driverPhone: input.driverPhone.trim(),
+          driverLicenseClass: input.driverLicenseClass,
+          routeHistoryCount: 0,
+          odometerKm,
+          lastMaintenanceOdometerKm: odometerKm,
+          maintenanceIntervalKm: input.maintenanceIntervalKm ?? DEFAULT_MAINTENANCE_INTERVAL_KM,
+          odometerHistory: [],
         };
         set({ vehicles: [...get().vehicles, v] });
-        if (input.currentDriverId) {
-          set({
-            drivers: get().drivers.map((d) =>
-              d.id === input.currentDriverId ? { ...d, currentVehicleId: v.id } : d
-            ),
-          });
-        }
         return v;
       },
       updateVehicle: (id, patch) => {
@@ -1219,18 +1249,11 @@ export const useDataStore = create<DataState>()(
           ...prev,
           ...patch,
           plateNumber: patch.plateNumber ? patch.plateNumber.trim().toUpperCase() : prev.plateNumber,
+          driverName: patch.driverName !== undefined ? patch.driverName.trim() : prev.driverName,
+          driverPhone: patch.driverPhone !== undefined ? patch.driverPhone.trim() : prev.driverPhone,
+          odometerHistory: prev.odometerHistory,
         };
         set({ vehicles: get().vehicles.map((v) => (v.id === id ? next : v)) });
-        // Sync driver assignment when driver changes
-        if (patch.currentDriverId !== undefined && patch.currentDriverId !== prev.currentDriverId) {
-          set({
-            drivers: get().drivers.map((d) => {
-              if (d.id === prev.currentDriverId) return { ...d, currentVehicleId: undefined };
-              if (d.id === patch.currentDriverId) return { ...d, currentVehicleId: id };
-              return d;
-            }),
-          });
-        }
       },
       deleteVehicle: (id) => {
         const v = get().vehicles.find((x) => x.id === id);
@@ -1238,65 +1261,70 @@ export const useDataStore = create<DataState>()(
         if (v.status === "BUSY" || v.activeAssignmentId) {
           return { ok: false, reason: "Xe đang có chuyến — không thể xoá" };
         }
-        set({
-          vehicles: get().vehicles.filter((x) => x.id !== id),
-          drivers: get().drivers.map((d) =>
-            d.currentVehicleId === id ? { ...d, currentVehicleId: undefined } : d
-          ),
-        });
+        set({ vehicles: get().vehicles.filter((x) => x.id !== id) });
         return { ok: true };
       },
 
-      // ----- drivers -----
-      addDriver: (input) => {
-        const d: Driver = {
-          id: uid("driver"),
-          fullName: input.fullName.trim(),
-          phone: input.phone.trim(),
-          licenseClass: input.licenseClass,
-          status: "AVAILABLE",
-          carrierId: input.carrierId,
-          currentVehicleId: input.currentVehicleId,
-          routeHistoryCount: 0,
+      recordOdometer: (vehicleId, km, actorId, context) => {
+        const v = get().vehicles.find((x) => x.id === vehicleId);
+        if (!v) return { ok: false, reason: "Không tìm thấy xe" };
+        if (!Number.isFinite(km) || km <= 0) {
+          return { ok: false, reason: "Số km không hợp lệ" };
+        }
+        if (km < v.odometerKm) {
+          return {
+            ok: false,
+            reason: `Số km mới (${km.toLocaleString()}) phải ≥ số km hiện tại (${v.odometerKm.toLocaleString()})`,
+          };
+        }
+        const addedKm = km - v.odometerKm;
+        const entry: OdometerEntry = {
+          id: uid("odo"),
+          km,
+          addedKm,
+          recordedAt: nowIso(),
+          recordedBy: actorId,
+          orderId: context?.orderId,
+          orderCode: context?.orderCode,
+          note: context?.note,
         };
-        set({ drivers: [...get().drivers, d] });
-        if (input.currentVehicleId) {
-          set({
-            vehicles: get().vehicles.map((v) =>
-              v.id === input.currentVehicleId ? { ...v, currentDriverId: d.id } : v
-            ),
-          });
-        }
-        return d;
-      },
-      updateDriver: (id, patch) => {
-        const prev = get().drivers.find((d) => d.id === id);
-        if (!prev) return;
-        const next: Driver = { ...prev, ...patch };
-        set({ drivers: get().drivers.map((d) => (d.id === id ? next : d)) });
-        if (patch.currentVehicleId !== undefined && patch.currentVehicleId !== prev.currentVehicleId) {
-          set({
-            vehicles: get().vehicles.map((v) => {
-              if (v.id === prev.currentVehicleId) return { ...v, currentDriverId: undefined };
-              if (v.id === patch.currentVehicleId) return { ...v, currentDriverId: id };
-              return v;
-            }),
-          });
-        }
-      },
-      deleteDriver: (id) => {
-        const d = get().drivers.find((x) => x.id === id);
-        if (!d) return { ok: false, reason: "Không tìm thấy tài xế" };
-        if (d.status === "BUSY") {
-          return { ok: false, reason: "Tài xế đang có chuyến — không thể xoá" };
-        }
         set({
-          drivers: get().drivers.filter((x) => x.id !== id),
-          vehicles: get().vehicles.map((v) =>
-            v.currentDriverId === id ? { ...v, currentDriverId: undefined } : v
+          vehicles: get().vehicles.map((x) =>
+            x.id === vehicleId
+              ? {
+                  ...x,
+                  odometerKm: km,
+                  odometerHistory: [entry, ...x.odometerHistory].slice(0, ODOMETER_HISTORY_CAP),
+                }
+              : x
           ),
         });
-        return { ok: true };
+        return { ok: true, entry };
+      },
+
+      markVehicleMaintained: (vehicleId, actorId) => {
+        const v = get().vehicles.find((x) => x.id === vehicleId);
+        if (!v) return;
+        const entry: OdometerEntry = {
+          id: uid("odo"),
+          km: v.odometerKm,
+          addedKm: 0,
+          recordedAt: nowIso(),
+          recordedBy: actorId,
+          note: "Đánh dấu đã bảo trì",
+        };
+        set({
+          vehicles: get().vehicles.map((x) =>
+            x.id === vehicleId
+              ? {
+                  ...x,
+                  lastMaintenanceOdometerKm: v.odometerKm,
+                  status: v.status === "MAINTENANCE" ? "AVAILABLE" : v.status,
+                  odometerHistory: [entry, ...x.odometerHistory].slice(0, ODOMETER_HISTORY_CAP),
+                }
+              : x
+          ),
+        });
       },
 
       setVehicleLocation: (vehicleId, lat, lng, progress) => {
@@ -1329,10 +1357,9 @@ export const useDataStore = create<DataState>()(
         set({ messages: [item, ...get().messages].slice(0, 50) });
       },
 
-      raiseSos: (driverId, vehicleId, location, orderIds, message) => {
+      raiseSos: (vehicleId, location, orderIds, message) => {
         const sos: SosAlert = {
           id: uid("sos"),
-          driverId,
           vehicleId,
           location,
           orderIds,

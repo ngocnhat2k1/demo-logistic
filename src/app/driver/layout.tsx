@@ -26,9 +26,9 @@ export default function DriverLayout({ children }: { children: React.ReactNode }
 
   if (!user) return null;
 
-  const myDriverId = user.driverId;
+  const myVehicleId = user.vehicleId;
   const todayOrders = orders.filter((o) =>
-    o.assignments.some((a) => a.driverId === myDriverId) &&
+    o.assignments.some((a) => a.vehicleId === myVehicleId) &&
     !["DELIVERED", "CANCELLED", "RETURNED", "CANCELLED_AFTER_RETURN"].includes(o.status)
   ).length;
 

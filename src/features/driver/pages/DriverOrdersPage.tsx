@@ -11,9 +11,11 @@ export default function DriverOrdersPage() {
   const user = useAuthStore((s) => s.currentUser);
   const orders = useDataStore((s) => s.orders);
   const customers = useDataStore((s) => s.customers);
-  const myDriverId = user?.driverId;
+  const myVehicleId = user?.vehicleId;
 
-  const myOrders = orders.filter((o) => o.assignments.some((a) => a.driverId === myDriverId));
+  const myOrders = orders.filter((o) =>
+    o.assignments.some((a) => a.vehicleId === myVehicleId)
+  );
 
   return (
     <div className="p-4 space-y-3">

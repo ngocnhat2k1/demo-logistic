@@ -10,7 +10,7 @@ const COLORS = ["#16a34a", "#2563eb", "#f59e0b", "#dc2626", "#7c3aed"];
 
 export default function ReportsPage() {
   const orders = useDataStore((s) => s.orders);
-  const drivers = useDataStore((s) => s.drivers);
+  const vehicles = useDataStore((s) => s.vehicles);
   const customers = useDataStore((s) => s.customers);
 
   const days = Array.from({ length: 7 }, (_, i) => startOfDay(subDays(new Date(), 6 - i)));
@@ -29,14 +29,19 @@ export default function ReportsPage() {
     };
   });
 
-  const driverCounts = new Map<string, number>();
+  const vehicleCounts = new Map<string, number>();
   orders.forEach((o) => {
     if (o.status === "DELIVERED") {
-      o.assignments.forEach((a) => driverCounts.set(a.driverId, (driverCounts.get(a.driverId) ?? 0) + 1));
+      o.assignments.forEach((a) =>
+        vehicleCounts.set(a.vehicleId, (vehicleCounts.get(a.vehicleId) ?? 0) + 1)
+      );
     }
   });
-  const topDrivers = drivers
-    .map((d) => ({ name: d.fullName.split(" ").slice(-2).join(" "), count: driverCounts.get(d.id) ?? 0 }))
+  const topDrivers = vehicles
+    .map((v) => ({
+      name: v.driverName.split(" ").slice(-2).join(" "),
+      count: vehicleCounts.get(v.id) ?? 0,
+    }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 10);
 
