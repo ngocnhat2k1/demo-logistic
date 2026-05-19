@@ -406,6 +406,7 @@ export function DispatchBoard() {
                       order={o}
                       customerName={customerName(o.customerId)}
                       onSuggest={() => setAiOrder(o)}
+                      onAssign={() => setAssignOrder(o)}
                     />
                   ))}
                 </>
@@ -647,10 +648,12 @@ function DraggableOrderCard({
   order,
   customerName,
   onSuggest,
+  onAssign,
 }: {
   order: Order;
   customerName: string;
   onSuggest: () => void;
+  onAssign: () => void;
 }) {
   const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({ id: order.id });
   const style = transform
@@ -685,16 +688,28 @@ function DraggableOrderCard({
           {formatKg(order.weightKg)}
         </Badge>
       </div>
-      <button
-        onClick={(e) => {
-          e.stopPropagation();
-          onSuggest();
-        }}
-        className="mt-2 flex w-full items-center justify-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary hover:bg-primary/20"
-        onPointerDown={(e) => e.stopPropagation()}
-      >
-        <Sparkles className="h-3 w-3" /> AI gợi ý xe
-      </button>
+      <div className="mt-2 grid grid-cols-2 gap-1.5">
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onSuggest();
+          }}
+          className="flex items-center justify-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary hover:bg-primary/20"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <Sparkles className="h-3 w-3" /> AI gợi ý
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            onAssign();
+          }}
+          className="flex items-center justify-center gap-1 rounded-md bg-primary px-2 py-1 text-[10px] font-semibold text-primary-foreground hover:bg-primary/90"
+          onPointerDown={(e) => e.stopPropagation()}
+        >
+          <Hand className="h-3 w-3" /> Phân xe
+        </button>
+      </div>
     </div>
   );
 }
