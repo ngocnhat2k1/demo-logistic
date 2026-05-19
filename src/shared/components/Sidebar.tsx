@@ -16,6 +16,7 @@ import {
     Send,
     LogOut,
     RefreshCw,
+    Wallet,
     X,
 } from "lucide-react";
 import { FaRoad } from "react-icons/fa";
@@ -50,6 +51,12 @@ const NAV = [
         href: "/customers",
         label: "Khách hàng",
         icon: Users,
+        roles: ["ADMIN", "OPS_MANAGER", "SALES", "DISPATCHER"],
+    },
+    {
+        href: "/quota",
+        label: "Hạn mức",
+        icon: Wallet,
         roles: ["ADMIN", "OPS_MANAGER", "SALES", "DISPATCHER"],
     },
     { href: "/fleet", label: "Đội xe", icon: Truck, roles: ["ADMIN", "OPS_MANAGER", "DISPATCHER"] },
