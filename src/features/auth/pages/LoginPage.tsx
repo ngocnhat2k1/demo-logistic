@@ -76,7 +76,6 @@ export default function LoginPage() {
                         {/* eslint-disable-next-line @next/next/no-img-element */}
                         <img src="/logo.webp" alt="Tratimex" className="h-auto w-48" />
                     </div>
-                    <CardTitle className="text-2xl">Tratimex</CardTitle>
                     <CardDescription>Đăng nhập 1-click với role có sẵn</CardDescription>
                 </CardHeader>
                 <CardContent>
