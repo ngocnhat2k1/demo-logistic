@@ -100,12 +100,9 @@ function SidebarBody({
         <>
             <div className="flex items-center justify-between gap-2 px-4 py-4 border-b">
                 <div className="flex items-center gap-2 min-w-0">
-                    <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/10">
+                    <div className="flex min-w-0 flex-col gap-1">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src="/logo.svg" alt="Mona Logistic" width={28} height={22} />
-                    </div>
-                    <div className="min-w-0">
-                        <p className="text-sm font-semibold leading-tight truncate">Mona Logistic</p>
+                        <img src="/logo.webp" alt="Tratimex" width={150} height={28} className="h-auto w-36" />
                         <p className="text-xs text-muted-foreground truncate">
                             Quản lý điều độ vận tải
                         </p>
