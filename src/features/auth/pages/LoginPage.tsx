@@ -37,11 +37,11 @@ export default function LoginPage() {
     <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-slate-50 to-blue-50 p-4">
       <Card className="w-full max-w-2xl">
         <CardHeader className="text-center">
-          <div className="mx-auto mb-2 flex h-14 w-14 items-center justify-center rounded-xl bg-primary/10">
+          <div className="mx-auto mb-3 flex h-12 items-center justify-center">
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/logo.svg" alt="Mona Logistic" width={40} height={32} />
+            <img src="/logo.webp" alt="Tratimex" width={190} height={35} className="h-auto w-48" />
           </div>
-          <CardTitle className="text-2xl">Mona Logistic</CardTitle>
+          <CardTitle className="text-2xl">Tratimex</CardTitle>
           <CardDescription>Đăng nhập 1-click với role có sẵn</CardDescription>
         </CardHeader>
         <CardContent>
@@ -67,7 +67,7 @@ export default function LoginPage() {
             })}
           </div>
           <p className="mt-6 text-center text-xs text-muted-foreground">
-            Bản demo Mona Logistic — không có xác thực thật. Chọn role để vào hệ thống.
+            Bản demo Tratimex — không có xác thực thật. Chọn role để vào hệ thống.
           </p>
         </CardContent>
       </Card>
