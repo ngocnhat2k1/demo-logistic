@@ -1,9 +1,8 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import type { ComponentType, SVGProps } from "react";
 import {
     LayoutDashboard,
     Package,
@@ -17,10 +16,9 @@ import {
     Send,
     LogOut,
     RefreshCw,
-    ChevronDown,
     X,
 } from "lucide-react";
-import { FaThLarge, FaUsers, FaShareAlt, FaTruck, FaTag, FaHome, FaRoad } from "react-icons/fa";
+import { FaRoad } from "react-icons/fa";
 import { useAuthStore } from "@/features/auth/stores/auth";
 import { useDataStore } from "@/shared/stores/data";
 import { useUIStore } from "@/shared/stores/ui";
@@ -77,81 +75,10 @@ const NAV = [
     { href: "/admin/users", label: "Quản trị", icon: Settings, roles: ["ADMIN"] },
 ] as const;
 
-interface FakeItem {
-    label: string;
-    active?: boolean;
-    children?: string[];
-}
-interface FakeSection {
-    icon: ComponentType<SVGProps<SVGSVGElement>>;
-    title: string;
-    items: FakeItem[];
-}
-
-const FAKE_SECTIONS: FakeSection[] = [
-    {
-        icon: FaThLarge,
-        title: "TỔNG QUAN",
-        items: [
-            { label: "Trang điều khiển", active: true },
-            { label: "Cài đặt", children: ["Cấu hình chung", "Bảo mật"] },
-        ],
-    },
-    {
-        icon: FaUsers,
-        title: "TÀI KHOẢN",
-        items: [
-            { label: "Danh sách khách hàng" },
-            { label: "Danh sách admin" },
-            { label: "Danh sách nhân viên" },
-            { label: "Danh sách liên hệ" },
-            { label: "Quản lý hoa hồng", children: ["Cấu hình hoa hồng", "Lịch sử chi"] },
-        ],
-    },
-    {
-        icon: FaShareAlt,
-        title: "ĐƠN HÀNG",
-        items: [
-            { label: "Đơn hàng", children: ["Đơn mua hộ", "Đơn ký gửi", "Đơn vận chuyển"] },
-            { label: "Tạo đơn mua hộ khác" },
-            { label: "Tạo đơn ký gửi" },
-            { label: "Xử lý khiếu nại" },
-        ],
-    },
-    {
-        icon: FaTruck,
-        title: "NGHIỆP VỤ KHO",
-        items: [
-            { label: "Gán kiện ký gửi" },
-            { label: "Tracking" },
-            { label: "Kho Trung Quốc", children: ["Nhập kho TQ", "Xuất kho TQ"] },
-            { label: "Kho Việt Nam", children: ["Nhập kho VN", "Xuất kho VN"] },
-            { label: "Quản lý kiện hàng", children: ["Danh sách kiện", "Kiện chờ xử lý"] },
-        ],
-    },
-    {
-        icon: FaTag,
-        title: "NGHIỆP VỤ KẾ TOÁN",
-        items: [
-            { label: "Thống kê", children: ["Doanh thu", "Công nợ"] },
-            { label: "Nạp tiền cá nhân" },
-            { label: "Yêu cầu nạp" },
-            { label: "Yêu cầu rút" },
-        ],
-    },
-    {
-        icon: FaHome,
-        title: "CẤU HÌNH TRANG CHỦ",
-        items: [{ label: "Cấu hình trang chủ" }],
-    },
-];
-
 interface SidebarBodyProps {
     role: UserRole;
     fullName: string;
     path: string;
-    expanded: Record<string, boolean>;
-    toggleExpanded: (key: string) => void;
     onNavigate?: () => void;
     onReset: () => void;
     onLogout: () => void;
@@ -163,8 +90,6 @@ function SidebarBody({
     role,
     fullName,
     path,
-    expanded,
-    toggleExpanded,
     onNavigate,
     onReset,
     onLogout,
@@ -200,75 +125,6 @@ function SidebarBody({
             </div>
 
             <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
-                {/* ===== Mona modules (mockup) ===== */}
-                {FAKE_SECTIONS.map((section) => {
-                    const SectionIcon = section.icon;
-                    return (
-                        <div key={section.title} className="mb-2">
-                            <p className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-primary">
-                                <SectionIcon className="h-3.5 w-3.5" aria-hidden />
-                                {section.title}
-                            </p>
-                            <div className="space-y-0.5">
-                                {section.items.map((item) => {
-                                    const key = `${section.title}::${item.label}`;
-                                    const isOpen = !!expanded[key];
-                                    if (item.children) {
-                                        return (
-                                            <div key={key}>
-                                                <button
-                                                    type="button"
-                                                    onClick={() => toggleExpanded(key)}
-                                                    className={cn(
-                                                        "flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition",
-                                                        "text-foreground/70 hover:bg-accent hover:text-accent-foreground",
-                                                    )}
-                                                >
-                                                    <span className="flex-1 text-left">
-                                                        {item.label}
-                                                    </span>
-                                                    <ChevronDown
-                                                        className={cn(
-                                                            "h-3.5 w-3.5 transition-transform",
-                                                            isOpen && "rotate-180",
-                                                        )}
-                                                    />
-                                                </button>
-                                                {isOpen && (
-                                                    <div className="ml-3 mt-0.5 space-y-0.5 border-l pl-3">
-                                                        {item.children.map((child) => (
-                                                            <div
-                                                                key={child}
-                                                                className="cursor-default rounded-md px-3 py-1.5 text-xs text-foreground/60"
-                                                            >
-                                                                {child}
-                                                            </div>
-                                                        ))}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        );
-                                    }
-                                    return (
-                                        <div
-                                            key={key}
-                                            className={cn(
-                                                "flex cursor-default items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition",
-                                                item.active
-                                                    ? "bg-primary text-primary-foreground"
-                                                    : "text-foreground/70 hover:bg-accent hover:text-accent-foreground",
-                                            )}
-                                        >
-                                            {item.label}
-                                        </div>
-                                    );
-                                })}
-                            </div>
-                        </div>
-                    );
-                })}
-
-                {/* ===== Mona Logistic — module chính ===== */}
                 <div className="mb-2">
                     <p className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-primary">
                         <FaRoad className="h-3.5 w-3.5" aria-hidden />
@@ -324,7 +180,6 @@ export function Sidebar() {
     const resetAll = useDataStore((s) => s.resetAll);
     const mobileNavOpen = useUIStore((s) => s.mobileNavOpen);
     const closeMobileNav = useUIStore((s) => s.closeMobileNav);
-    const [expanded, setExpanded] = useState<Record<string, boolean>>({});
 
     // Close drawer on route change
     useEffect(() => {
@@ -355,10 +210,6 @@ export function Sidebar() {
 
     if (!user) return null;
 
-    function toggleExpanded(key: string) {
-        setExpanded((s) => ({ ...s, [key]: !s[key] }));
-    }
-
     function handleReset() {
         if (!confirm("Reset toàn bộ dữ liệu demo về trạng thái seed gốc?")) return;
         resetAll();
@@ -378,8 +229,6 @@ export function Sidebar() {
                     role={user.role}
                     fullName={user.fullName}
                     path={path}
-                    expanded={expanded}
-                    toggleExpanded={toggleExpanded}
                     onReset={handleReset}
                     onLogout={handleLogout}
                 />
@@ -413,8 +262,6 @@ export function Sidebar() {
                         role={user.role}
                         fullName={user.fullName}
                         path={path}
-                        expanded={expanded}
-                        toggleExpanded={toggleExpanded}
                         onNavigate={closeMobileNav}
                         onReset={handleReset}
                         onLogout={handleLogout}
