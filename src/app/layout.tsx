@@ -6,8 +6,11 @@ import { HydrationGate } from "@/shared/components/HydrationGate";
 import { RealtimeProvider } from "@/shared/components/realtime/RealtimeProvider";
 
 export const metadata: Metadata = {
-  title: "Mona Logistic",
-  description: "Mona Logistic — Quản lý điều độ và phương tiện vận tải",
+  title: "Tratimex",
+  description: "Tratimex — Quản lý điều độ và phương tiện vận tải",
+  icons: {
+    icon: "/favicon.ico",
+  },
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
