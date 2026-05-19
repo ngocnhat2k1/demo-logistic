@@ -28,7 +28,6 @@ interface Props {
 
 export function AcceptDispatchDialog({ order, vehicle, onClose }: Props) {
   const customers = useDataStore((s) => s.customers);
-  const drivers = useDataStore((s) => s.drivers);
   const adjustOrderWeight = useDataStore((s) => s.adjustOrderWeight);
   const applyQuotaOverride = useDataStore((s) => s.applyQuotaOverride);
   const assignOrderToVehicle = useDataStore((s) => s.assignOrderToVehicle);
@@ -52,10 +51,6 @@ export function AcceptDispatchDialog({ order, vehicle, onClose }: Props) {
   const customer = useMemo(
     () => (order ? customers.find((c) => c.id === order.customerId) : null),
     [order, customers]
-  );
-  const driver = useMemo(
-    () => (vehicle ? drivers.find((d) => d.id === vehicle.currentDriverId) : null),
-    [vehicle, drivers]
   );
 
   if (!order || !vehicle) return null;
@@ -143,7 +138,9 @@ export function AcceptDispatchDialog({ order, vehicle, onClose }: Props) {
               <Truck className="h-4 w-4" /> {vehicle.plateNumber} • Tải{" "}
               {formatKg(vehicle.capacityKg)}
             </p>
-            <p className="text-muted-foreground">Tài xế: {driver?.fullName ?? "—"}</p>
+            <p className="text-muted-foreground">
+              Tài xế: {vehicle.driverName} ({vehicle.driverLicenseClass}) • {vehicle.driverPhone}
+            </p>
           </div>
 
           {/* Weight check */}

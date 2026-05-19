@@ -7,14 +7,15 @@ import { Input } from "@/shared/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { useDataStore } from "@/shared/stores/data";
 import { useMemo, useState } from "react";
-import { Plus, Search, Upload, MapPin, X } from "lucide-react";
+import { Plus, Search, Upload, MapPin, X, Pencil } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ORDER_STATUS_LABEL } from "@/features/orders/domain/orderStatus";
-import type { OrderStatus } from "@/shared/types";
+import { ORDER_STATUS_LABEL, canEdit } from "@/features/orders/domain/orderStatus";
+import type { Order, OrderStatus } from "@/shared/types";
 import { StatusBadge } from "@/features/orders/components/StatusBadge";
 import { CreateOrderDialog } from "@/features/orders/components/CreateOrderDialog";
 import { ImportOrderDialog } from "@/features/orders/components/ImportOrderDialog";
+import { EditOrderInfoDialog } from "@/features/orders/components/EditOrderInfoDialog";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
 import { formatKg } from "@/shared/utils";
@@ -44,6 +45,7 @@ export default function OrderListPage() {
   const [toDate, setToDate] = useState<string>("");
   const [createOpen, setCreateOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
+  const [editOrder, setEditOrder] = useState<Order | null>(null);
 
   const filtered = useMemo(() => {
     const fromTs = fromDate ? new Date(fromDate + "T00:00:00").getTime() : null;
@@ -158,6 +160,11 @@ export default function OrderListPage() {
 
         <CreateOrderDialog open={createOpen} onOpenChange={setCreateOpen} onOpenImport={() => setImportOpen(true)} />
         <ImportOrderDialog open={importOpen} onOpenChange={setImportOpen} />
+        <EditOrderInfoDialog
+          order={editOrder}
+          open={editOrder !== null}
+          onOpenChange={(open) => !open && setEditOrder(null)}
+        />
 
         {/* Mobile: card list */}
         <div className="md:hidden space-y-2">
@@ -171,9 +178,9 @@ export default function OrderListPage() {
           {filtered.slice(0, 100).map((o) => {
             const c = customers.find((cc) => cc.id === o.customerId);
             return (
-              <Link key={o.id} href={`/orders/${o.id}`} className="block">
-                <Card className="hover:border-primary transition">
-                  <CardContent className="p-3 space-y-2">
+              <Card key={o.id} className="hover:border-primary transition">
+                <CardContent className="p-3 space-y-2">
+                  <Link href={`/orders/${o.id}`} className="block space-y-2">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0 flex-1">
                         <p className="font-mono text-sm font-semibold text-primary">{o.code}</p>
@@ -198,9 +205,16 @@ export default function OrderListPage() {
                       </span>
                       <Badge variant="secondary">{o.source}</Badge>
                     </div>
-                  </CardContent>
-                </Card>
-              </Link>
+                  </Link>
+                  {canEdit(o.status) && (
+                    <div className="flex justify-end pt-1">
+                      <Button variant="outline" size="sm" onClick={() => setEditOrder(o)}>
+                        <Pencil className="h-3.5 w-3.5" /> Sửa thông tin
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
             );
           })}
         </div>
@@ -219,12 +233,13 @@ export default function OrderListPage() {
                     <th className="px-4 py-3 font-medium whitespace-nowrap">Trạng thái</th>
                     <th className="px-4 py-3 font-medium whitespace-nowrap">Tạo lúc</th>
                     <th className="px-4 py-3 font-medium whitespace-nowrap">Nguồn</th>
+                    <th className="px-4 py-3 font-medium whitespace-nowrap text-right">Hành động</th>
                   </tr>
                 </thead>
                 <tbody>
                   {filtered.length === 0 && (
                     <tr>
-                      <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
+                      <td colSpan={8} className="px-4 py-12 text-center text-muted-foreground">
                         Không có đơn hàng phù hợp
                       </td>
                     </tr>
@@ -249,6 +264,19 @@ export default function OrderListPage() {
                           {format(new Date(o.createdAt), "dd/MM HH:mm", { locale: vi })}
                         </td>
                         <td className="px-4 py-3"><Badge variant="secondary">{o.source}</Badge></td>
+                        <td className="px-4 py-3 text-right whitespace-nowrap">
+                          {canEdit(o.status) ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => setEditOrder(o)}
+                            >
+                              <Pencil className="h-3.5 w-3.5" /> Sửa
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}

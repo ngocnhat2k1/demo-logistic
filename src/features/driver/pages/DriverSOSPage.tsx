@@ -42,18 +42,20 @@ export default function DriverSOSPage() {
   }
 
   function fire() {
-    if (!user?.driverId) return;
-    const v = vehicles.find((x) => x.currentDriverId === user.driverId);
+    if (!user?.vehicleId) return;
+    const v = vehicles.find((x) => x.id === user.vehicleId);
     if (!v) return;
     const myOrders = orders
-      .filter((o) => o.assignments.some((a) => a.driverId === user.driverId) && o.status === "IN_TRANSIT")
+      .filter(
+        (o) => o.assignments.some((a) => a.vehicleId === v.id) && o.status === "IN_TRANSIT"
+      )
       .map((o) => o.id);
-    raiseSos(user.driverId, v.id, v.currentLocation, myOrders, "Khẩn cấp - tài xế bấm SOS");
+    raiseSos(v.id, v.currentLocation, myOrders, "Khẩn cấp - tài xế bấm SOS");
     pushNotification({
       type: "EMERGENCY_SOS",
       severity: "destructive",
       title: "🚨 SOS từ tài xế",
-      message: `${user.fullName} - xe ${v.plateNumber} - cần hỗ trợ khẩn cấp`,
+      message: `${v.driverName} - xe ${v.plateNumber} - cần hỗ trợ khẩn cấp`,
       targetRoles: ["DISPATCHER", "OPS_MANAGER", "ADMIN"],
     });
     toast.error("Đã gửi cảnh báo SOS đến điều độ!");

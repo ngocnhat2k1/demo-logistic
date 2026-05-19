@@ -27,7 +27,6 @@ export default function OrderDetailPage() {
   const order = useDataStore((s) => s.orders.find((o) => o.id === id));
   const customers = useDataStore((s) => s.customers);
   const vehicles = useDataStore((s) => s.vehicles);
-  const drivers = useDataStore((s) => s.drivers);
   const cancelOrder = useDataStore((s) => s.cancelOrder);
   const splitOrder = useDataStore((s) => s.splitOrder);
   const user = useAuthStore((s) => s.currentUser);
@@ -180,12 +179,11 @@ export default function OrderDetailPage() {
                 )}
                 {order.assignments.map((a) => {
                   const v = vehicles.find((x) => x.id === a.vehicleId);
-                  const d = drivers.find((x) => x.id === a.driverId);
                   return (
                     <div key={a.id} className="rounded-md border p-3 text-sm">
                       <p>
                         <span className="font-mono font-medium">{v?.plateNumber}</span> — Tài xế{" "}
-                        <span className="font-medium">{d?.fullName}</span>
+                        <span className="font-medium">{v?.driverName ?? "—"}</span>
                       </p>
                       <p className="text-xs text-muted-foreground">
                         {a.partLabel ? `${a.partLabel} • ` : ""}

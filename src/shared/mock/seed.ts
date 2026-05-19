@@ -1,7 +1,6 @@
 import type {
   Carrier,
   Customer,
-  Driver,
   Order,
   OrderStatus,
   User,
@@ -11,6 +10,8 @@ import type {
   DispatchAssignment,
   AppNotification,
   ReturnReasonConfig,
+  OdometerEntry,
+  LicenseClass,
 } from "@/shared/types";
 import { mulberry32, pick, rangeInt, uid } from "@/shared/utils";
 import { PLACES, buildPolyline, placeToLocation, type PlaceKey } from "./geo";
@@ -65,6 +66,9 @@ const PRODUCT_DESC = [
 ];
 
 const VEHICLE_TYPES = ["BOX", "TANK", "CONTAINER", "FLATBED"] as const;
+const LICENSE_CLASSES: LicenseClass[] = ["B2", "C", "D", "E", "FC"];
+
+const DEFAULT_MAINTENANCE_INTERVAL_KM = 10000;
 
 function makeName(rng: () => number) {
   return `${pick(rng, FIRST_NAMES)} ${pick(rng, MIDDLE)} ${pick(rng, LAST)}`;
@@ -83,7 +87,7 @@ function makeQuota(rng: () => number, type: QuotaType): Quota {
       type,
       limit: 0,
       reserved: 0,
-      used: outstanding, // POSTPAID's used == cumulative delivered (also tracked as outstanding until paid)
+      used: outstanding,
       outstanding,
       resetCycle: "NEVER",
       history: [
@@ -99,7 +103,6 @@ function makeQuota(rng: () => number, type: QuotaType): Quota {
     };
   }
   const limit = pick(rng, [5000, 8000, 10000, 15000, 20000, 30000]);
-  // Distribute usage to demo states: 0%, 30-50%, 80-95%, 100%
   const usagePool = [0.1, 0.35, 0.5, 0.6, 0.85, 0.92, 0.97, 1.0];
   const used = Math.round(limit * pick(rng, usagePool));
   return {
@@ -143,12 +146,38 @@ const DEFAULT_RETURN_REASONS: ReturnReasonConfig[] = [
   { id: "rr_vehicle_breakdown", code: "VEHICLE_BREAKDOWN", label: "Xe gặp sự cố phải hoàn hàng về kho", category: "FORCE_MAJEURE", refundPercent: 100, active: true, isBuiltIn: true },
 ];
 
+function makeOdometerHistory(
+  rng: () => number,
+  currentKm: number,
+  startKm: number,
+  entries: number
+): OdometerEntry[] {
+  if (entries <= 0 || currentKm <= startKm) return [];
+  const step = (currentKm - startKm) / entries;
+  const out: OdometerEntry[] = [];
+  let prev = startKm;
+  for (let i = 0; i < entries; i++) {
+    const jitter = step * (0.6 + rng() * 0.8);
+    const km = Math.min(currentKm, Math.round(prev + jitter));
+    out.push({
+      id: uid("odo"),
+      km,
+      addedKm: km - prev,
+      recordedAt: new Date(Date.now() - (entries - i) * 86400000).toISOString(),
+      recordedBy: "system",
+      note: "Tài xế cập nhật sau chuyến (seed)",
+    });
+    prev = km;
+  }
+  out[out.length - 1].km = currentKm;
+  out[out.length - 1].addedKm = currentKm - (entries > 1 ? out[out.length - 2].km : startKm);
+  return out.reverse();
+}
+
 export function buildSeed() {
   const rng = mulberry32(20260509);
 
   // ---- Carriers ----
-  // INTERNAL = nhà xe liên kết (công ty con / liên kết nội bộ)
-  // BACKUP   = nhà xe dự phòng (bên thứ 3, thuê ngoài khi cần)
   const carriers: Carrier[] = [
     { id: "carrier_ttm", code: "TTM", name: "Vận tải TTM", type: "INTERNAL", contactPhone: "02838123456" },
     { id: "carrier_vna", code: "VNA", name: "Vận tải VNA", type: "INTERNAL", contactPhone: "02838234567" },
@@ -158,43 +187,34 @@ export function buildSeed() {
     { id: "carrier_bp3", code: "AN", name: "Vận chuyển An Phát", type: "BACKUP", contactPhone: "02838678901" },
   ];
 
-  const internalCarriers = carriers.filter((c) => c.type === "INTERNAL");
-  const backupCarriers = carriers.filter((c) => c.type === "BACKUP");
-
-  // ---- Drivers (18) ----
-  // 12 tài xế nhà xe liên kết, 6 tài xế nhà xe dự phòng
-  const drivers: Driver[] = [];
-  for (let i = 0; i < 18; i++) {
-    const carrierId = i < 12 ? pick(rng, internalCarriers).id : pick(rng, backupCarriers).id;
-    drivers.push({
-      id: `driver_${i + 1}`,
-      fullName: makeName(rng),
-      phone: makePhone(rng),
-      licenseClass: pick(rng, ["B2", "C", "D", "E", "FC"] as const),
-      status: "AVAILABLE",
-      carrierId,
-      routeHistoryCount: rangeInt(rng, 1, 30),
-    });
-  }
-
-  // ---- Vehicles (25) ----
-  // 18 xe liên kết (TTM:8, VNA:6, DXP:4), 7 xe dự phòng (HP:3, TL:2, AN:2)
+  // ---- Vehicles (22, each with embedded driver — 1 vehicle = 1 driver) ----
   const vehicleCarrierMap = [
-    ...Array(8).fill("carrier_ttm"),
-    ...Array(6).fill("carrier_vna"),
+    ...Array(7).fill("carrier_ttm"),
+    ...Array(5).fill("carrier_vna"),
     ...Array(4).fill("carrier_dxp"),
     ...Array(3).fill("carrier_bp1"),
     ...Array(2).fill("carrier_bp2"),
-    ...Array(2).fill("carrier_bp3"),
+    ...Array(1).fill("carrier_bp3"),
   ];
   const capacities = [1500, 5000, 10000, 14000];
   const vehicles: Vehicle[] = [];
-  for (let i = 0; i < 25; i++) {
+  for (let i = 0; i < vehicleCarrierMap.length; i++) {
     const carrierId = vehicleCarrierMap[i];
     const cap = pick(rng, capacities);
     const place = pick(rng, Object.keys(PLACES) as PlaceKey[]);
     const p = PLACES[place];
-    const driver = drivers[i % drivers.length];
+    // Distribute odometer to show all maintenance states:
+    //   - some fresh (<5000 since maintenance)
+    //   - some approaching maintenance (8000-9500)
+    //   - some overdue (>10000)
+    const sinceMaint = pick(rng, [
+      rangeInt(rng, 500, 4500),
+      rangeInt(rng, 4500, 8000),
+      rangeInt(rng, 8500, 9800),
+      rangeInt(rng, 10000, 12500),
+    ]);
+    const lastMaint = rangeInt(rng, 30000, 120000);
+    const odometerKm = lastMaint + sinceMaint;
     vehicles.push({
       id: `vehicle_${i + 1}`,
       plateNumber: `51F-${String(rangeInt(rng, 10000, 99999))}`,
@@ -203,9 +223,15 @@ export function buildSeed() {
       carrierId,
       status: "AVAILABLE",
       currentLocation: { lat: p.lat, lng: p.lng },
-      currentDriverId: driver.id,
+      driverName: makeName(rng),
+      driverPhone: makePhone(rng),
+      driverLicenseClass: pick(rng, LICENSE_CLASSES),
+      routeHistoryCount: rangeInt(rng, 1, 30),
+      odometerKm,
+      lastMaintenanceOdometerKm: lastMaint,
+      maintenanceIntervalKm: DEFAULT_MAINTENANCE_INTERVAL_KM,
+      odometerHistory: makeOdometerHistory(rng, odometerKm, lastMaint, rangeInt(rng, 3, 6)),
     });
-    driver.currentVehicleId = `vehicle_${i + 1}`;
   }
 
   // ---- Customers (15) ----
@@ -284,12 +310,10 @@ export function buildSeed() {
       )
     ) {
       const v = vehicles.find((vv) => vv.capacityKg >= weight && vv.status === "AVAILABLE") ?? vehicles[0];
-      const d = drivers.find((dd) => dd.id === v.currentDriverId) ?? drivers[0];
       const assignment: DispatchAssignment = {
         id: uid("dasg"),
         orderId: order.id,
         vehicleId: v.id,
-        driverId: d.id,
         weightKg: weight,
         assignedAt: createdAt,
         assignedBy: "user_dispatcher",
@@ -311,7 +335,6 @@ export function buildSeed() {
         v.activeAssignmentId = assignment.id;
         v.routePolyline = buildPolyline(order.pickup, order.dropoff, 14);
         v.routeProgress = pick(rng, [0.15, 0.3, 0.45, 0.6, 0.75]);
-        d.status = "BUSY";
       }
 
       if (status === "DELIVERED") {
@@ -323,7 +346,6 @@ export function buildSeed() {
     orders.push(order);
   }
 
-  // Reflect in-flight orders into customer.quota.reserved (so seeded data stays consistent)
   const inflightStatuses: OrderStatus[] = [
     "NEW",
     "PENDING_DISPATCH",
@@ -339,6 +361,7 @@ export function buildSeed() {
   }
 
   // ---- Users ----
+  const driverVehicle = vehicles[0];
   const users: User[] = [
     { id: "user_admin", email: "admin@demo.vn", fullName: "Trần Quản Trị", role: "ADMIN" },
     { id: "user_manager", email: "manager@demo.vn", fullName: "Lê Vận Hành", role: "OPS_MANAGER" },
@@ -354,13 +377,13 @@ export function buildSeed() {
     {
       id: "user_driver",
       email: "driver@demo.vn",
-      fullName: drivers[0].fullName,
+      fullName: driverVehicle.driverName,
       role: "DRIVER",
-      driverId: drivers[0].id,
+      vehicleId: driverVehicle.id,
     },
   ];
 
-  // ---- Notifications (a few seed) ----
+  // ---- Notifications ----
   const notifications: AppNotification[] = [
     {
       id: uid("notif"),
@@ -384,7 +407,7 @@ export function buildSeed() {
     },
   ];
 
-  return { carriers, drivers, vehicles, customers, orders, users, notifications, returnReasons: DEFAULT_RETURN_REASONS };
+  return { carriers, vehicles, customers, orders, users, notifications, returnReasons: DEFAULT_RETURN_REASONS };
 }
 
 export type SeedData = ReturnType<typeof buildSeed>;

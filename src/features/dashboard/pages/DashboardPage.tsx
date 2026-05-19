@@ -15,7 +15,6 @@ export default function DashboardPage() {
   const orders = useDataStore((s) => s.orders);
   const vehicles = useDataStore((s) => s.vehicles);
   const customers = useDataStore((s) => s.customers);
-  const drivers = useDataStore((s) => s.drivers);
 
   const newCount = orders.filter((o) => o.status === "NEW" || o.status === "PENDING_DISPATCH").length;
   const inTransit = orders.filter((o) => ["DISPATCHED", "PICKED_UP", "IN_TRANSIT"].includes(o.status)).length;
@@ -40,17 +39,20 @@ export default function DashboardPage() {
     };
   });
 
-  // Chart 2: top drivers by completed orders
-  const driverCounts = new Map<string, number>();
+  // Chart 2: top drivers by completed orders (1 vehicle = 1 driver)
+  const vehicleCounts = new Map<string, number>();
   orders.forEach((o) => {
     if (o.status === "DELIVERED") {
       o.assignments.forEach((a) => {
-        driverCounts.set(a.driverId, (driverCounts.get(a.driverId) ?? 0) + 1);
+        vehicleCounts.set(a.vehicleId, (vehicleCounts.get(a.vehicleId) ?? 0) + 1);
       });
     }
   });
-  const topDrivers = drivers
-    .map((d) => ({ name: d.fullName.split(" ").slice(-2).join(" "), count: driverCounts.get(d.id) ?? 0 }))
+  const topDrivers = vehicles
+    .map((v) => ({
+      name: v.driverName.split(" ").slice(-2).join(" "),
+      count: vehicleCounts.get(v.id) ?? 0,
+    }))
     .sort((a, b) => b.count - a.count)
     .slice(0, 8);
 
@@ -101,8 +103,8 @@ export default function DashboardPage() {
               <CardDescription>{availableVehicles} sẵn sàng / {busyVehicles} đang chạy</CardDescription>
             </CardHeader>
             <CardContent className="flex-1 space-y-2">
-              <Stat label="Tổng xe" value={vehicles.length} icon={<Truck className="h-4 w-4" />} />
-              <Stat label="Tổng tài xế" value={drivers.length} icon={<Users className="h-4 w-4" />} />
+              <Stat label="Xe & tài xế" value={vehicles.length} icon={<Truck className="h-4 w-4" />} />
+              <Stat label="Đang chạy" value={busyVehicles} icon={<Users className="h-4 w-4" />} />
               <Stat label="Tổng khách hàng" value={customers.length} icon={<Package className="h-4 w-4" />} />
             </CardContent>
           </Card>

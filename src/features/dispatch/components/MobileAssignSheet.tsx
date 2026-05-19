@@ -23,13 +23,12 @@ interface Props {
  */
 export function MobileAssignSheet({ order, onClose, onPickVehicle }: Props) {
   const vehicles = useDataStore((s) => s.vehicles);
-  const drivers = useDataStore((s) => s.drivers);
   const customers = useDataStore((s) => s.customers);
   const open = !!order;
 
   const suggestions = useMemo(
-    () => (order ? suggestVehicles({ order, vehicles, drivers }) : []),
-    [order, vehicles, drivers],
+    () => (order ? suggestVehicles({ order, vehicles }) : []),
+    [order, vehicles],
   );
   const suggestedIds = useMemo(() => new Set(suggestions.map((s) => s.vehicleId)), [suggestions]);
 
@@ -157,7 +156,6 @@ export function MobileAssignSheet({ order, onClose, onPickVehicle }: Props) {
               <div className="space-y-2">
                 {suggestions.map((s, idx) => {
                   const v = vehicles.find((x) => x.id === s.vehicleId)!;
-                  const d = drivers.find((x) => x.id === v.currentDriverId);
                   return (
                     <button
                       key={s.vehicleId}
@@ -172,7 +170,7 @@ export function MobileAssignSheet({ order, onClose, onPickVehicle }: Props) {
                           <div className="min-w-0">
                             <p className="font-mono font-semibold">{v.plateNumber}</p>
                             <p className="text-xs text-muted-foreground truncate">
-                              {d?.fullName ?? "—"} • {formatKg(v.capacityKg)}
+                              {v.driverName} • {formatKg(v.capacityKg)}
                             </p>
                           </div>
                         </div>
@@ -207,31 +205,28 @@ export function MobileAssignSheet({ order, onClose, onPickVehicle }: Props) {
                 </Badge>
               </div>
               <div className="space-y-1.5">
-                {otherAvailable.map((v) => {
-                  const d = drivers.find((x) => x.id === v.currentDriverId);
-                  return (
-                    <button
-                      key={v.id}
-                      onClick={() => onPickVehicle(v)}
-                      className="w-full text-left rounded-md border p-2.5 hover:border-primary active:bg-primary/5 transition"
-                    >
-                      <div className="flex items-center justify-between gap-2">
-                        <div className="min-w-0">
-                          <p className="font-mono font-semibold text-sm">{v.plateNumber}</p>
-                          <p className="text-xs text-muted-foreground truncate">
-                            {d?.fullName ?? "—"} • {v.type}
-                          </p>
-                        </div>
-                        <div className="flex items-center gap-2 shrink-0">
-                          <Badge variant="outline" className="text-[10px]">
-                            {formatKg(v.capacityKg)}
-                          </Badge>
-                          <ArrowRight className="h-4 w-4 text-muted-foreground" />
-                        </div>
+                {otherAvailable.map((v) => (
+                  <button
+                    key={v.id}
+                    onClick={() => onPickVehicle(v)}
+                    className="w-full text-left rounded-md border p-2.5 hover:border-primary active:bg-primary/5 transition"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="font-mono font-semibold text-sm">{v.plateNumber}</p>
+                        <p className="text-xs text-muted-foreground truncate">
+                          {v.driverName} • {v.type}
+                        </p>
                       </div>
-                    </button>
-                  );
-                })}
+                      <div className="flex items-center gap-2 shrink-0">
+                        <Badge variant="outline" className="text-[10px]">
+                          {formatKg(v.capacityKg)}
+                        </Badge>
+                        <ArrowRight className="h-4 w-4 text-muted-foreground" />
+                      </div>
+                    </div>
+                  </button>
+                ))}
               </div>
             </section>
           )}

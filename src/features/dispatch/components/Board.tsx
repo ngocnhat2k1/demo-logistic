@@ -29,7 +29,7 @@ import { AISuggestModal } from "./AISuggestModal";
 import { AcceptDispatchDialog } from "./AcceptDispatchDialog";
 import { MobileAssignSheet } from "./MobileAssignSheet";
 import { MapCanvas } from "@/shared/map";
-import type { Driver, Order, Vehicle } from "@/shared/types";
+import type { Order, Vehicle } from "@/shared/types";
 import Link from "next/link";
 
 type MobileTab = "orders" | "map" | "vehicles";
@@ -37,7 +37,6 @@ type MobileTab = "orders" | "map" | "vehicles";
 export function DispatchBoard() {
   const orders = useDataStore((s) => s.orders);
   const vehicles = useDataStore((s) => s.vehicles);
-  const drivers = useDataStore((s) => s.drivers);
   const customers = useDataStore((s) => s.customers);
   const user = useAuthStore((s) => s.currentUser);
 
@@ -83,13 +82,12 @@ export function DispatchBoard() {
       kind: "vehicle-busy" | "vehicle-idle" | "pickup" | "dropoff";
     }[] = [];
     busyVehicles.forEach((v) => {
-      const driver = drivers.find((d) => d.id === v.currentDriverId);
       m.push({
         id: `v-${v.id}`,
         lat: v.currentLocation.lat,
         lng: v.currentLocation.lng,
         kind: "vehicle-busy",
-        popup: `<b>${v.plateNumber}</b><br/>${driver?.fullName ?? ""}<br/>Tốc độ: ${v.speedKmh ?? 40} km/h<br/>Tiến độ: ${Math.round((v.routeProgress ?? 0) * 100)}%`,
+        popup: `<b>${v.plateNumber}</b><br/>${v.driverName}<br/>Tốc độ: ${v.speedKmh ?? 40} km/h<br/>Tiến độ: ${Math.round((v.routeProgress ?? 0) * 100)}%`,
       });
     });
     availableVehicles.slice(0, 12).forEach((v) => {
@@ -102,7 +100,7 @@ export function DispatchBoard() {
       });
     });
     return m;
-  }, [busyVehicles, availableVehicles, drivers]);
+  }, [busyVehicles, availableVehicles]);
 
   const mapPolylines = useMemo(
     () =>
@@ -196,40 +194,34 @@ export function DispatchBoard() {
                     Sẵn sàng ({availableVehicles.length})
                   </p>
                 )}
-                {availableVehicles.map((v) => {
-                  const d = drivers.find((dd) => dd.id === v.currentDriverId);
-                  return (
-                    <div key={v.id} className="rounded-md border p-3 text-sm bg-card">
-                      <div className="flex items-center justify-between mb-1">
-                        <p className="font-mono font-semibold">{v.plateNumber}</p>
-                        <Badge variant="success" className="text-[10px]">Sẵn sàng</Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground truncate">
-                        {d?.fullName ?? "—"} • {v.type}
-                      </p>
-                      <p className="text-xs text-muted-foreground">Tải: {formatKg(v.capacityKg)}</p>
+                {availableVehicles.map((v) => (
+                  <div key={v.id} className="rounded-md border p-3 text-sm bg-card">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="font-mono font-semibold">{v.plateNumber}</p>
+                      <Badge variant="success" className="text-[10px]">Sẵn sàng</Badge>
                     </div>
-                  );
-                })}
+                    <p className="text-xs text-muted-foreground truncate">
+                      {v.driverName} • {v.type}
+                    </p>
+                    <p className="text-xs text-muted-foreground">Tải: {formatKg(v.capacityKg)}</p>
+                  </div>
+                ))}
                 {busyVehicles.length > 0 && (
                   <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mt-3">
                     Đang chạy ({busyVehicles.length})
                   </p>
                 )}
-                {busyVehicles.map((v) => {
-                  const d = drivers.find((dd) => dd.id === v.currentDriverId);
-                  return (
-                    <div key={v.id} className="rounded-md border bg-muted/40 p-3 text-sm opacity-80">
-                      <div className="flex items-center justify-between mb-1">
-                        <p className="font-mono font-semibold">{v.plateNumber}</p>
-                        <Badge variant="default" className="text-[10px]">
-                          {Math.round((v.routeProgress ?? 0) * 100)}%
-                        </Badge>
-                      </div>
-                      <p className="text-xs text-muted-foreground truncate">{d?.fullName ?? "—"}</p>
+                {busyVehicles.map((v) => (
+                  <div key={v.id} className="rounded-md border bg-muted/40 p-3 text-sm opacity-80">
+                    <div className="flex items-center justify-between mb-1">
+                      <p className="font-mono font-semibold">{v.plateNumber}</p>
+                      <Badge variant="default" className="text-[10px]">
+                        {Math.round((v.routeProgress ?? 0) * 100)}%
+                      </Badge>
                     </div>
-                  );
-                })}
+                    <p className="text-xs text-muted-foreground truncate">{v.driverName}</p>
+                  </div>
+                ))}
               </CardContent>
             </Card>
           )}
@@ -294,22 +286,19 @@ export function DispatchBoard() {
                 Sẵn sàng
               </p>
               {availableVehicles.map((v) => (
-                <DroppableVehicle key={v.id} vehicle={v} drivers={drivers} />
+                <DroppableVehicle key={v.id} vehicle={v} />
               ))}
               <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mt-3">
                 Đang chạy
               </p>
-              {busyVehicles.map((v) => {
-                const d = drivers.find((dd) => dd.id === v.currentDriverId);
-                return (
-                  <div key={v.id} className="rounded-md border bg-muted/50 p-2 text-xs opacity-70">
-                    <p className="font-mono font-semibold">{v.plateNumber}</p>
-                    <p className="text-muted-foreground">
-                      {d?.fullName} • {Math.round((v.routeProgress ?? 0) * 100)}%
-                    </p>
-                  </div>
-                );
-              })}
+              {busyVehicles.map((v) => (
+                <div key={v.id} className="rounded-md border bg-muted/50 p-2 text-xs opacity-70">
+                  <p className="font-mono font-semibold">{v.plateNumber}</p>
+                  <p className="text-muted-foreground">
+                    {v.driverName} • {Math.round((v.routeProgress ?? 0) * 100)}%
+                  </p>
+                </div>
+              ))}
             </CardContent>
           </Card>
         </div>
@@ -460,9 +449,8 @@ function DraggableOrderCard({
   );
 }
 
-function DroppableVehicle({ vehicle, drivers }: { vehicle: Vehicle; drivers: Driver[] }) {
+function DroppableVehicle({ vehicle }: { vehicle: Vehicle }) {
   const { setNodeRef, isOver, active } = useDroppable({ id: vehicle.id });
-  const driver = drivers.find((d) => d.id === vehicle.currentDriverId);
   const orders = useDataStore((s) => s.orders);
   const draggingOrder = active ? orders.find((o) => o.id === active.id) : null;
   const wouldOverflow = draggingOrder && draggingOrder.weightKg > vehicle.capacityKg;
@@ -484,7 +472,7 @@ function DroppableVehicle({ vehicle, drivers }: { vehicle: Vehicle; drivers: Dri
           Sẵn sàng
         </Badge>
       </div>
-      <p className="text-muted-foreground truncate">{driver?.fullName ?? "—"}</p>
+      <p className="text-muted-foreground truncate">{vehicle.driverName}</p>
       <p className="text-muted-foreground">
         Tải: {formatKg(vehicle.capacityKg)} • {vehicle.type}
       </p>
