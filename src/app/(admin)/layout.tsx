@@ -14,9 +14,10 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
     if (!ready) return;
     if (!user) router.replace("/login");
     else if (user.role === "DRIVER") router.replace("/driver");
+    else if (user.role === "CUSTOMER") router.replace("/customer");
   }, [ready, user, router]);
 
-  if (!user || user.role === "DRIVER") return null;
+  if (!user || user.role === "DRIVER" || user.role === "CUSTOMER") return null;
 
   return (
     <div className="flex h-screen bg-muted/30">

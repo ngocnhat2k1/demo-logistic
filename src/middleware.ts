@@ -20,13 +20,28 @@ export function middleware(req: NextRequest) {
   }
 
   // role-based routing
-  if (pathname.startsWith("/driver") && role !== "DRIVER" && role !== "ADMIN") {
+  const isDriverRoute = pathname.startsWith("/driver");
+  const isCustomerRoute = pathname.startsWith("/customer");
+
+  if (role === "CUSTOMER" && !isCustomerRoute) {
+    const url = req.nextUrl.clone();
+    url.pathname = "/customer";
+    return NextResponse.redirect(url);
+  }
+
+  if (isCustomerRoute && role !== "CUSTOMER") {
+    const url = req.nextUrl.clone();
+    url.pathname = role === "DRIVER" ? "/driver" : "/dashboard";
+    return NextResponse.redirect(url);
+  }
+
+  if (isDriverRoute && role !== "DRIVER" && role !== "ADMIN") {
     const url = req.nextUrl.clone();
     url.pathname = "/dashboard";
     return NextResponse.redirect(url);
   }
 
-  if (!pathname.startsWith("/driver") && role === "DRIVER") {
+  if (!isDriverRoute && role === "DRIVER") {
     const url = req.nextUrl.clone();
     url.pathname = "/driver";
     return NextResponse.redirect(url);

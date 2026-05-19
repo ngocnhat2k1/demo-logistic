@@ -7,7 +7,7 @@ Feature quản trị hệ thống dành cho ADMIN: quản lý người dùng, va
 ## Chức năng hiện tại
 
 - Danh sách tất cả tài khoản người dùng (read-only trong demo)
-- Hiển thị họ tên, email, vai trò (ADMIN/OPS_MANAGER/DISPATCHER/SALES/DRIVER)
+- Hiển thị họ tên, email, vai trò (ADMIN/OPS_MANAGER/DISPATCHER/SALES/DRIVER/CUSTOMER)
 
 ## Chức năng dự kiến (production)
 

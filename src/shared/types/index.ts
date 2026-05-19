@@ -13,7 +13,13 @@ export interface Location {
 }
 
 // ----- User / RBAC -----
-export type UserRole = "ADMIN" | "OPS_MANAGER" | "DISPATCHER" | "SALES" | "DRIVER";
+export type UserRole =
+  | "ADMIN"
+  | "OPS_MANAGER"
+  | "DISPATCHER"
+  | "SALES"
+  | "DRIVER"
+  | "CUSTOMER";
 
 export interface User {
   id: string;
@@ -21,6 +27,7 @@ export interface User {
   fullName: string;
   role: UserRole;
   driverId?: string;
+  customerId?: string;
 }
 
 // ----- Customer + Quota -----

@@ -345,6 +345,13 @@ export function buildSeed() {
     { id: "user_dispatcher", email: "dispatcher@demo.vn", fullName: "Nguyễn Anh Tuấn", role: "DISPATCHER" },
     { id: "user_sales", email: "sales@demo.vn", fullName: "Phạm Mai Hương", role: "SALES" },
     {
+      id: "user_customer",
+      email: customers[0]?.email ?? "customer@demo.vn",
+      fullName: customers[0]?.name ?? "Khách hàng Demo",
+      role: "CUSTOMER",
+      customerId: customers[0]?.id,
+    },
+    {
       id: "user_driver",
       email: "driver@demo.vn",
       fullName: drivers[0].fullName,

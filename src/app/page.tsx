@@ -13,6 +13,7 @@ export default function Home() {
     if (!ready) return;
     if (!user) router.replace("/login");
     else if (user.role === "DRIVER") router.replace("/driver");
+    else if (user.role === "CUSTOMER") router.replace("/customer");
     else router.replace("/dashboard");
   }, [ready, user, router]);
 
