@@ -14,6 +14,7 @@ import { useState, useRef } from "react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/shared/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { Badge } from "@/shared/ui/badge";
+import { OrderRouteMap } from "@/features/orders/components/OrderRouteMap";
 
 export default function DriverOrderDetailPage() {
   const router = useRouter();
@@ -158,6 +159,10 @@ export default function DriverOrderDetailPage() {
               </div>
             </div>
           </div>
+
+          {order.assignments.length > 0 && (
+            <OrderRouteMap order={order} heightClass="h-[260px]" />
+          )}
 
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div className="rounded-md border p-2">
