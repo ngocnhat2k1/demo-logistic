@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuthStore } from "@/features/auth/stores/auth";
 import { useDataStore } from "@/shared/stores/data";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
-import { ShieldCheck, Truck, UserCog, Users2, Briefcase } from "lucide-react";
+import { Briefcase, Building2, ShieldCheck, Truck, UserCog, Users2 } from "lucide-react";
 import type { User, UserRole } from "@/shared/types";
 
 const ROLE_META: Record<UserRole, { label: string; icon: React.ElementType; subtitle: string; color: string }> = {
@@ -13,6 +13,7 @@ const ROLE_META: Record<UserRole, { label: string; icon: React.ElementType; subt
   OPS_MANAGER: { label: "Quản lý vận hành", icon: UserCog, subtitle: "Giám sát điều phối + báo cáo", color: "bg-purple-50 text-purple-600" },
   DISPATCHER: { label: "Điều độ viên", icon: Briefcase, subtitle: "Phân xe, theo dõi đơn", color: "bg-blue-50 text-blue-600" },
   SALES: { label: "Kinh doanh", icon: Users2, subtitle: "Tạo đơn cho khách", color: "bg-amber-50 text-amber-600" },
+  CUSTOMER: { label: "Khách hàng", icon: Building2, subtitle: "Theo dõi đơn và hạn mức", color: "bg-cyan-50 text-cyan-700" },
   DRIVER: { label: "Tài xế", icon: Truck, subtitle: "App di động (giả lập)", color: "bg-emerald-50 text-emerald-600" },
 };
 
@@ -30,6 +31,7 @@ export default function LoginPage() {
     if (!u) return;
     setUser(u);
     if (role === "DRIVER") router.replace("/driver");
+    else if (role === "CUSTOMER") router.replace("/customer");
     else router.replace("/dashboard");
   }
 

@@ -20,6 +20,7 @@ export default function DriverLayout({ children }: { children: React.ReactNode }
   useEffect(() => {
     if (!ready) return;
     if (!user) router.replace("/login");
+    else if (user.role === "CUSTOMER") router.replace("/customer");
     else if (user.role !== "DRIVER" && user.role !== "ADMIN") router.replace("/dashboard");
   }, [ready, user, router]);
 

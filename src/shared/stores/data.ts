@@ -189,6 +189,32 @@ function nowIso() {
   return new Date().toISOString();
 }
 
+function ensureCustomerAccessUser(users: User[], customers: Customer[]) {
+  if (customers.length === 0) return users;
+
+  const linkedCustomerIds = new Set(customers.map((c) => c.id));
+  const hasLinkedCustomerUser = users.some(
+    (u) => u.role === "CUSTOMER" && !!u.customerId && linkedCustomerIds.has(u.customerId)
+  );
+  if (hasLinkedCustomerUser) return users;
+
+  const customer = customers[0];
+  const existingIndex = users.findIndex((u) => u.role === "CUSTOMER" || u.id === "user_customer");
+  const customerUser: User = {
+    id: existingIndex >= 0 ? users[existingIndex].id : "user_customer",
+    email: existingIndex >= 0 ? users[existingIndex].email : customer.email ?? "customer@demo.vn",
+    fullName: existingIndex >= 0 ? users[existingIndex].fullName : customer.name,
+    role: "CUSTOMER",
+    customerId: customer.id,
+  };
+
+  if (existingIndex >= 0) {
+    return users.map((u, index) => (index === existingIndex ? { ...u, ...customerUser } : u));
+  }
+
+  return [...users, customerUser];
+}
+
 const PRODUCTS = [
   "Hàng tiêu dùng",
   "Vật liệu xây dựng",
@@ -202,11 +228,20 @@ export const useDataStore = create<DataState>()(
     (set, get) => ({
       ...empty,
       _hasHydrated: false,
-      setHydrated: () => set({ _hasHydrated: true }),
+      setHydrated: () => {
+        set({
+          users: ensureCustomerAccessUser(get().users, get().customers),
+          _hasHydrated: true,
+        });
+      },
 
       ensureSeeded: () => {
         const s = get();
-        if (s.customers.length > 0 || s.orders.length > 0) return;
+        if (s.customers.length > 0 || s.orders.length > 0) {
+          const users = ensureCustomerAccessUser(s.users, s.customers);
+          if (users !== s.users) set({ users });
+          return;
+        }
         const seed = buildSeed();
         set({ ...empty, ...seed });
       },
