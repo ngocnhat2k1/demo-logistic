@@ -78,7 +78,7 @@ export function MobileAssignSheet({ order, onClose, onPickVehicle }: Props) {
   return (
     <div
       className={cn(
-        "md:hidden fixed inset-0 z-50",
+        "fixed inset-0 z-50",
         open ? "pointer-events-auto" : "pointer-events-none",
       )}
       aria-hidden={!open}
@@ -91,23 +91,26 @@ export function MobileAssignSheet({ order, onClose, onPickVehicle }: Props) {
         )}
         onClick={onClose}
       />
-      {/* Sheet */}
+      {/* Sheet — bottom sheet on mobile, centered modal on md+ */}
       <div
         className={cn(
           "absolute inset-x-0 bottom-0 max-h-[88vh] flex flex-col rounded-t-2xl bg-card shadow-2xl border-t transition-transform duration-200 ease-out",
-          open ? "translate-y-0" : "translate-y-full",
+          "md:inset-x-auto md:bottom-auto md:left-1/2 md:top-1/2 md:max-h-[85vh] md:w-full md:max-w-xl md:-translate-x-1/2 md:rounded-2xl md:border",
+          open
+            ? "translate-y-0 md:-translate-y-1/2 md:opacity-100"
+            : "translate-y-full md:translate-y-[calc(-50%+1rem)] md:opacity-0",
         )}
         role="dialog"
         aria-modal="true"
         aria-label="Phân xe cho đơn"
       >
-        {/* Drag handle visual */}
-        <div className="flex justify-center pt-2 pb-1 shrink-0">
+        {/* Drag handle visual (mobile only) */}
+        <div className="flex justify-center pt-2 pb-1 shrink-0 md:hidden">
           <div className="h-1 w-10 rounded-full bg-muted-foreground/30" />
         </div>
 
         {/* Header */}
-        <div className="flex items-start gap-2 px-4 pb-3 border-b shrink-0">
+        <div className="flex items-start gap-2 px-4 pb-3 border-b shrink-0 md:px-6 md:py-4">
           <div className="flex-1 min-w-0">
             <p className="text-xs text-muted-foreground">Phân xe cho đơn</p>
             <p className="font-mono font-semibold text-primary">{order?.code}</p>
@@ -133,7 +136,7 @@ export function MobileAssignSheet({ order, onClose, onPickVehicle }: Props) {
         </div>
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-4">
+        <div className="flex-1 overflow-y-auto p-3 space-y-4 md:px-6 md:py-5 md:space-y-5">
           {/* AI Suggestions */}
           <section>
             <div className="flex items-center gap-2 mb-2">

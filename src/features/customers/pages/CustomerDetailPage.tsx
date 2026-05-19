@@ -7,6 +7,8 @@ import { useDataStore } from "@/shared/stores/data";
 import { useParams, useRouter } from "next/navigation";
 import { ArrowLeft, RotateCcw, Wallet, Plus, Pencil } from "lucide-react";
 import { AddCustomerDialog } from "@/features/customers/components/AddCustomerDialog";
+import { PaymentDialog } from "@/features/quota/components/PaymentDialog";
+import { TopUpDialog } from "@/features/quota/components/TopUpDialog";
 import { Button } from "@/shared/ui/button";
 import { Progress } from "@/shared/ui/progress";
 import { Badge } from "@/shared/ui/badge";
@@ -16,10 +18,7 @@ import { vi } from "date-fns/locale";
 import { formatKg } from "@/shared/utils";
 import { toast } from "sonner";
 import { StatusBadge } from "@/features/orders/components/StatusBadge";
-import { useAuthStore } from "@/features/auth/stores/auth";
 import { useState } from "react";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/shared/ui/dialog";
-import { Input, Label } from "@/shared/ui/input";
 import Link from "next/link";
 
 export default function CustomerDetailPage() {
@@ -28,14 +27,9 @@ export default function CustomerDetailPage() {
   const customer = useDataStore((s) => s.customers.find((c) => c.id === id));
   const orders = useDataStore((s) => s.orders).filter((o) => o.customerId === id);
   const resetMonthlyQuota = useDataStore((s) => s.resetMonthlyQuota);
-  const recordPayment = useDataStore((s) => s.recordPayment);
-  const topUpQuota = useDataStore((s) => s.topUpQuota);
-  const user = useAuthStore((s) => s.currentUser);
 
   const [paymentOpen, setPaymentOpen] = useState(false);
-  const [paymentTons, setPaymentTons] = useState("0");
   const [topupOpen, setTopupOpen] = useState(false);
-  const [topupTons, setTopupTons] = useState("5");
   const [editOpen, setEditOpen] = useState(false);
 
   if (!customer) {
@@ -56,32 +50,6 @@ export default function CustomerDetailPage() {
   const isPostpaid = customer.quota.type === "POSTPAID";
   const ratio = quotaUsageRatio(customer.quota);
   const inUse = quotaInUse(customer.quota);
-
-  function submitPayment() {
-    if (!user || !customer) return;
-    const kg = Math.round(parseFloat(paymentTons) * 1000);
-    if (!kg || kg <= 0) {
-      toast.error("Khối lượng thanh toán không hợp lệ");
-      return;
-    }
-    recordPayment(customer.id, kg, user.id, `Ghi nhận thanh toán ${paymentTons} tấn`);
-    toast.success(`Đã ghi nhận thanh toán ${paymentTons} tấn`);
-    setPaymentOpen(false);
-    setPaymentTons("0");
-  }
-
-  function submitTopUp() {
-    if (!user || !customer) return;
-    const kg = Math.round(parseFloat(topupTons) * 1000);
-    if (!kg || kg <= 0) {
-      toast.error("Khối lượng nạp không hợp lệ");
-      return;
-    }
-    topUpQuota(customer.id, kg, user.id, `Nạp thêm ${topupTons} tấn`);
-    toast.success(`Đã nạp thêm ${topupTons} tấn`);
-    setTopupOpen(false);
-    setTopupTons("5");
-  }
 
   return (
     <>
@@ -277,53 +245,8 @@ export default function CustomerDetailPage() {
         </Tabs>
       </div>
 
-      <Dialog open={paymentOpen} onOpenChange={setPaymentOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Ghi nhận thanh toán</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2">
-            <p className="text-sm text-muted-foreground">
-              Công nợ hiện tại: <span className="font-semibold">{formatKg(customer.quota.outstanding ?? 0)}</span>
-            </p>
-            <Label>Khối lượng đã thanh toán (tấn)</Label>
-            <Input
-              type="number"
-              min={0}
-              step={0.1}
-              value={paymentTons}
-              onChange={(e) => setPaymentTons(e.target.value)}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setPaymentOpen(false)}>Huỷ</Button>
-            <Button onClick={submitPayment}>Xác nhận</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <Dialog open={topupOpen} onOpenChange={setTopupOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Nạp thêm hạn mức</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-2">
-            <Label>Khối lượng nạp (tấn)</Label>
-            <Input
-              type="number"
-              min={0}
-              step={0.5}
-              value={topupTons}
-              onChange={(e) => setTopupTons(e.target.value)}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setTopupOpen(false)}>Huỷ</Button>
-            <Button onClick={submitTopUp}>Nạp</Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
+      <PaymentDialog open={paymentOpen} onOpenChange={setPaymentOpen} customer={customer} />
+      <TopUpDialog open={topupOpen} onOpenChange={setTopupOpen} customer={customer} />
       <AddCustomerDialog open={editOpen} onOpenChange={setEditOpen} initial={customer} />
     </>
   );

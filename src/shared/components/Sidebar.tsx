@@ -16,6 +16,7 @@ import {
     Send,
     LogOut,
     RefreshCw,
+    Wallet,
     X,
 } from "lucide-react";
 import { FaRoad } from "react-icons/fa";
@@ -50,6 +51,12 @@ const NAV = [
         href: "/customers",
         label: "Khách hàng",
         icon: Users,
+        roles: ["ADMIN", "OPS_MANAGER", "SALES", "DISPATCHER"],
+    },
+    {
+        href: "/quota",
+        label: "Hạn mức",
+        icon: Wallet,
         roles: ["ADMIN", "OPS_MANAGER", "SALES", "DISPATCHER"],
     },
     { href: "/fleet", label: "Đội xe", icon: Truck, roles: ["ADMIN", "OPS_MANAGER", "DISPATCHER"] },
@@ -102,7 +109,13 @@ function SidebarBody({
                 <div className="flex items-center gap-2 min-w-0">
                     <div className="flex min-w-0 flex-col gap-1">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src="/logo.webp" alt="Tratimex" width={150} height={28} className="h-auto w-36" />
+                        <img
+                            src="/logo.webp"
+                            alt="Tratimex"
+                            width={150}
+                            height={28}
+                            className="h-auto w-36"
+                        />
                         <p className="text-xs text-muted-foreground truncate">
                             Quản lý điều độ vận tải
                         </p>
@@ -125,7 +138,7 @@ function SidebarBody({
                 <div className="mb-2">
                     <p className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-primary">
                         <FaRoad className="h-3.5 w-3.5" aria-hidden />
-                        MONA LOGISTIC
+                        Tratimex LOGISTIC
                     </p>
                     <div className="space-y-0.5">
                         {NAV.filter((n) => (n.roles as readonly string[]).includes(role)).map(

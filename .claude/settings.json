@@ -8,7 +8,9 @@
       "Bash(rm -rf /tmp/nextjs-eval-test && echo \"cleaned\")",
       "Bash(npm config *)",
       "Bash(npm ping *)",
-      "Bash(curl -sS -o /dev/null -w \"%{http_code}\\\\n\" https://registry.npmjs.org/)"
+      "Bash(curl -sS -o /dev/null -w \"%{http_code}\\\\n\" https://registry.npmjs.org/)",
+      "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
+      "Bash(curl -sI http://localhost:3000/logo.webp)"
     ],
     "additionalDirectories": [
       "/Users/ngocnhat/.claude/skills/nextjs-feature-first-refactor",
