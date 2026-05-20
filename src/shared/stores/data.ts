@@ -119,6 +119,17 @@ interface DataState {
   cancelOrder: (id: string, actorId: string) => void;
   setOrderStatus: (id: string, status: OrderStatus, actorId: string, payload?: Record<string, unknown>) => void;
   assignOrderToVehicle: (orderId: string, vehicleId: string, actorId: string, weightKg?: number, partLabel?: string) => DispatchAssignment | null;
+  /** Step 1: chọn NCC cho đơn. Nếu BACKUP → đơn chuyển sang PENDING_SUPERVISOR_REVIEW. */
+  submitOrderCarrier: (orderId: string, carrierId: string, actorId: string) => { ok: boolean; needsReview: boolean; reason?: string };
+  /** OPS_MANAGER duyệt đơn dùng NCC dự phòng + chọn xe luôn. */
+  approveSupervisorReview: (
+    orderId: string,
+    vehicleId: string,
+    actorId: string,
+    weightKg?: number
+  ) => { ok: boolean; reason?: string; assignment?: DispatchAssignment };
+  /** OPS_MANAGER từ chối duyệt → đơn quay về PENDING_DISPATCH, clear carrierId. */
+  rejectSupervisorReview: (orderId: string, actorId: string, reason?: string) => { ok: boolean; reason?: string };
   acceptAssignment: (orderId: string, assignmentId: string, actorId: string) => { ok: boolean; reason?: string };
   rejectAssignment: (orderId: string, assignmentId: string, actorId: string, reason: string) => { ok: boolean; reason?: string };
   unassignOrder: (orderId: string, assignmentId: string, actorId: string) => void;
@@ -977,6 +988,191 @@ export const useDataStore = create<DataState>()(
         return assignment;
       },
 
+      submitOrderCarrier: (orderId, carrierId, actorId) => {
+        const order = get().orders.find((o) => o.id === orderId);
+        const carrier = get().carriers.find((c) => c.id === carrierId);
+        if (!order) return { ok: false, needsReview: false, reason: "Không tìm thấy đơn" };
+        if (!carrier) return { ok: false, needsReview: false, reason: "Không tìm thấy nhà cung cấp" };
+        if (order.status !== "NEW" && order.status !== "PENDING_DISPATCH") {
+          return { ok: false, needsReview: false, reason: "Đơn không ở trạng thái chờ phân" };
+        }
+
+        const needsReview = carrier.type === "BACKUP";
+        const at = nowIso();
+
+        if (!needsReview) {
+          set({
+            orders: get().orders.map((o) =>
+              o.id === orderId
+                ? {
+                    ...o,
+                    carrierId,
+                    updatedAt: at,
+                    events: [
+                      ...o.events,
+                      {
+                        id: uid("evt"),
+                        type: "CARRIER_SELECTED",
+                        payload: { carrierId, carrierType: carrier.type, carrierName: carrier.name },
+                        actorId,
+                        at,
+                      },
+                    ],
+                  }
+                : o
+            ),
+          });
+          return { ok: true, needsReview: false };
+        }
+
+        set({
+          orders: get().orders.map((o) =>
+            o.id === orderId
+              ? {
+                  ...o,
+                  carrierId,
+                  status: "PENDING_SUPERVISOR_REVIEW",
+                  supervisorReview: { requestedAt: at, requestedBy: actorId },
+                  updatedAt: at,
+                  events: [
+                    ...o.events,
+                    {
+                      id: uid("evt"),
+                      type: "SUPERVISOR_REVIEW_REQUESTED",
+                      payload: { carrierId, carrierName: carrier.name },
+                      actorId,
+                      at,
+                    },
+                  ],
+                }
+              : o
+          ),
+        });
+
+        const customer = get().customers.find((c) => c.id === order.customerId);
+        get().pushNotification({
+          type: "GENERIC",
+          severity: "warning",
+          title: "Đơn cần duyệt nhà xe dự phòng",
+          message: `${order.code} • ${customer?.name ?? ""} • NCC ${carrier.name}`,
+          targetRoles: ["OPS_MANAGER", "ADMIN"],
+          data: { orderId, carrierId },
+        });
+
+        return { ok: true, needsReview: true };
+      },
+
+      approveSupervisorReview: (orderId, vehicleId, actorId, weightKg) => {
+        const order = get().orders.find((o) => o.id === orderId);
+        if (!order) return { ok: false, reason: "Không tìm thấy đơn" };
+        if (order.status !== "PENDING_SUPERVISOR_REVIEW") {
+          return { ok: false, reason: "Đơn không ở trạng thái chờ duyệt" };
+        }
+        const vehicle = get().vehicles.find((v) => v.id === vehicleId);
+        if (!vehicle) return { ok: false, reason: "Không tìm thấy xe" };
+        if (order.carrierId && vehicle.carrierId !== order.carrierId) {
+          return { ok: false, reason: "Xe không thuộc nhà cung cấp đã chọn" };
+        }
+
+        // Assign first — if it fails (capacity/queue/vehicle status), no review-state mutation has happened.
+        const assignment = get().assignOrderToVehicle(orderId, vehicleId, actorId, weightKg);
+        if (!assignment) {
+          return { ok: false, reason: "Không thể phân xe (vượt tải hoặc xe đang bận)" };
+        }
+
+        // Assignment succeeded → record review decision + audit event in a single pass.
+        const at = nowIso();
+        set({
+          orders: get().orders.map((o) =>
+            o.id === orderId
+              ? {
+                  ...o,
+                  updatedAt: at,
+                  supervisorReview: {
+                    ...(o.supervisorReview ?? { requestedAt: at, requestedBy: actorId }),
+                    reviewedAt: at,
+                    reviewedBy: actorId,
+                    decision: "APPROVED",
+                  },
+                  events: [
+                    ...o.events,
+                    {
+                      id: uid("evt"),
+                      type: "SUPERVISOR_REVIEW_APPROVED",
+                      payload: { vehicleId, assignmentId: assignment.id },
+                      actorId,
+                      at,
+                    },
+                  ],
+                }
+              : o
+          ),
+        });
+
+        get().pushNotification({
+          type: "ORDER_DISPATCHED",
+          severity: "info",
+          title: "Đã duyệt nhà xe dự phòng",
+          message: `Đơn ${order.code} đã được duyệt và phân cho xe ${vehicle.plateNumber}`,
+          targetRoles: ["DISPATCHER", "OPS_MANAGER", "ADMIN"],
+          data: { orderId, vehicleId },
+        });
+
+        return { ok: true, assignment };
+      },
+
+      rejectSupervisorReview: (orderId, actorId, reason) => {
+        const order = get().orders.find((o) => o.id === orderId);
+        if (!order) return { ok: false, reason: "Không tìm thấy đơn" };
+        if (order.status !== "PENDING_SUPERVISOR_REVIEW") {
+          return { ok: false, reason: "Đơn không ở trạng thái chờ duyệt" };
+        }
+
+        const at = nowIso();
+        const trimmed = reason?.trim() || undefined;
+
+        set({
+          orders: get().orders.map((o) =>
+            o.id === orderId
+              ? {
+                  ...o,
+                  status: "PENDING_DISPATCH",
+                  carrierId: undefined,
+                  updatedAt: at,
+                  supervisorReview: {
+                    ...(o.supervisorReview ?? { requestedAt: at, requestedBy: actorId }),
+                    reviewedAt: at,
+                    reviewedBy: actorId,
+                    decision: "REJECTED",
+                    rejectReason: trimmed,
+                  },
+                  events: [
+                    ...o.events,
+                    {
+                      id: uid("evt"),
+                      type: "SUPERVISOR_REVIEW_REJECTED",
+                      payload: { reason: trimmed },
+                      actorId,
+                      at,
+                    },
+                  ],
+                }
+              : o
+          ),
+        });
+
+        get().pushNotification({
+          type: "GENERIC",
+          severity: "warning",
+          title: "Từ chối nhà xe dự phòng",
+          message: `Đơn ${order.code} bị từ chối${trimmed ? `: ${trimmed}` : ""}. Vui lòng chọn lại nhà cung cấp.`,
+          targetRoles: ["DISPATCHER", "OPS_MANAGER", "ADMIN"],
+          data: { orderId },
+        });
+
+        return { ok: true };
+      },
+
       acceptAssignment: (orderId, assignmentId, actorId) => {
         const order = get().orders.find((o) => o.id === orderId);
         if (!order) return { ok: false, reason: "Không tìm thấy đơn" };
@@ -1108,12 +1304,14 @@ export const useDataStore = create<DataState>()(
         const a = order.assignments.find((x) => x.id === assignmentId);
         if (!a) return;
         const remaining = order.assignments.filter((x) => x.id !== assignmentId);
+        const backToDispatch = remaining.length === 0;
         set({
           orders: get().orders.map((o) =>
             o.id === orderId
               ? {
                   ...o,
-                  status: remaining.length === 0 ? "PENDING_DISPATCH" : o.status,
+                  status: backToDispatch ? "PENDING_DISPATCH" : o.status,
+                  carrierId: backToDispatch ? undefined : o.carrierId,
                   assignments: remaining,
                   updatedAt: nowIso(),
                   events: [

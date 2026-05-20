@@ -131,6 +131,7 @@ export interface Vehicle {
 export type OrderStatus =
   | "NEW"
   | "PENDING_DISPATCH"
+  | "PENDING_SUPERVISOR_REVIEW"
   | "PENDING_ACCEPT"
   | "DISPATCHED"
   | "PICKED_UP"
@@ -142,6 +143,15 @@ export type OrderStatus =
   | "RETURNED"
   | "CANCELLED"
   | "CANCELLED_AFTER_RETURN";
+
+export interface SupervisorReview {
+  requestedAt: string;
+  requestedBy: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  decision?: "APPROVED" | "REJECTED";
+  rejectReason?: string;
+}
 
 export interface DispatchAssignment {
   id: string;
@@ -212,6 +222,10 @@ export interface Order {
   failureNotes?: string;
   /** Lịch sử override hạn mức (lúc tạo và/hoặc lúc điều độ tiếp nhận). */
   quotaOverrides?: QuotaOverrideRecord[];
+  /** NCC đã chọn ở step 1 (sống xuyên suốt limbo trước khi có assignment). */
+  carrierId?: string;
+  /** Trạng thái duyệt giám sát khu vực (chỉ tồn tại khi NCC là BACKUP). */
+  supervisorReview?: SupervisorReview;
 }
 
 // ----- Return -----

@@ -17,6 +17,7 @@ import {
     LogOut,
     RefreshCw,
     Wallet,
+    ShieldCheck,
     X,
 } from "lucide-react";
 import { FaRoad } from "react-icons/fa";
@@ -61,6 +62,13 @@ const NAV = [
     },
     { href: "/fleet", label: "Đội xe", icon: Truck, roles: ["ADMIN", "OPS_MANAGER", "DISPATCHER"] },
     {
+        href: "/approvals",
+        label: "Duyệt nhà xe dự phòng",
+        icon: ShieldCheck,
+        roles: ["ADMIN", "OPS_MANAGER"],
+        badgeKey: "pendingReview",
+    },
+    {
         href: "/returns",
         label: "Trả hàng",
         icon: RotateCcw,
@@ -103,6 +111,10 @@ function SidebarBody({
     showCloseButton,
     onClose,
 }: SidebarBodyProps) {
+    const pendingReviewCount = useDataStore(
+        (s) => s.orders.filter((o) => o.status === "PENDING_SUPERVISOR_REVIEW").length,
+    );
+    const badgeCounts: Record<string, number> = { pendingReview: pendingReviewCount };
     return (
         <>
             <div className="flex items-center justify-between gap-2 px-4 py-4 border-b">
@@ -144,19 +156,35 @@ function SidebarBody({
                         {NAV.filter((n) => (n.roles as readonly string[]).includes(role)).map(
                             (n) => {
                                 const active = path === n.href || path.startsWith(n.href + "/");
+                                const count =
+                                    "badgeKey" in n && n.badgeKey
+                                        ? badgeCounts[n.badgeKey] ?? 0
+                                        : 0;
                                 return (
                                     <Link
                                         key={n.href}
                                         href={n.href}
                                         onClick={onNavigate}
                                         className={cn(
-                                            "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition",
+                                            "flex items-center justify-between gap-3 rounded-md px-3 py-2 text-sm font-medium transition",
                                             active
                                                 ? "bg-primary text-primary-foreground"
                                                 : "text-foreground/70 hover:bg-accent hover:text-accent-foreground",
                                         )}
                                     >
-                                        {n.label}
+                                        <span className="truncate">{n.label}</span>
+                                        {count > 0 && (
+                                            <span
+                                                className={cn(
+                                                    "inline-flex items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-semibold shrink-0",
+                                                    active
+                                                        ? "bg-primary-foreground/20 text-primary-foreground"
+                                                        : "bg-warning text-warning-foreground",
+                                                )}
+                                            >
+                                                {count}
+                                            </span>
+                                        )}
                                     </Link>
                                 );
                             },

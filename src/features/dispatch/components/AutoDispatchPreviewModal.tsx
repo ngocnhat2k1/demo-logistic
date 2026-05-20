@@ -2,7 +2,7 @@
 
 import { useMemo, useState, useEffect } from "react";
 import { toast } from "sonner";
-import { Sparkles, Truck, ArrowRight, AlertTriangle, Package } from "lucide-react";
+import { Sparkles, Truck, ArrowRight, AlertTriangle, Package, Building2, ShieldAlert } from "lucide-react";
 
 import {
   Dialog,
@@ -56,11 +56,23 @@ function buildPlan(orders: Order[], vehicles: Vehicle[]): PlanRow[] {
 }
 
 export function AutoDispatchPreviewModal({ orders, open, onClose }: Props) {
-  const vehicles = useDataStore((s) => s.vehicles);
+  const allVehicles = useDataStore((s) => s.vehicles);
+  const carriers = useDataStore((s) => s.carriers);
   const customers = useDataStore((s) => s.customers);
   const assignOrderToVehicle = useDataStore((s) => s.assignOrderToVehicle);
+  const submitOrderCarrier = useDataStore((s) => s.submitOrderCarrier);
   const pushNotification = useDataStore((s) => s.pushNotification);
   const user = useAuthStore((s) => s.currentUser);
+
+  // Auto-dispatch chỉ phân vào xe thuộc NCC liên kết. NCC dự phòng cần giám sát duyệt thủ công.
+  const internalCarrierIds = useMemo(
+    () => new Set(carriers.filter((c) => c.type === "INTERNAL").map((c) => c.id)),
+    [carriers],
+  );
+  const vehicles = useMemo(
+    () => allVehicles.filter((v) => internalCarrierIds.has(v.carrierId)),
+    [allVehicles, internalCarrierIds],
+  );
 
   const plan = useMemo(() => (open ? buildPlan(orders, vehicles) : []), [open, orders, vehicles]);
 
@@ -89,6 +101,11 @@ export function AutoDispatchPreviewModal({ orders, open, onClose }: Props) {
     let fail = 0;
     for (const row of matched) {
       if (excluded.has(row.order.id) || !row.vehicle) continue;
+      const carrierRes = submitOrderCarrier(row.order.id, row.vehicle.carrierId, user.id);
+      if (!carrierRes.ok) {
+        fail++;
+        continue;
+      }
       const a = assignOrderToVehicle(row.order.id, row.vehicle.id, user.id);
       if (a) {
         ok++;
@@ -126,6 +143,12 @@ export function AutoDispatchPreviewModal({ orders, open, onClose }: Props) {
         </DialogHeader>
 
         <div className="flex-1 overflow-y-auto space-y-3 -mx-2 px-2">
+          <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/5 p-2.5 text-[11px] text-warning">
+            <ShieldAlert className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>
+              Tự động phân chỉ áp dụng cho NCC liên kết. Đơn cần dùng nhà xe dự phòng phải qua giám sát duyệt thủ công.
+            </span>
+          </div>
           {orders.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-6">Không có đơn nào chờ phân.</p>
           )}
@@ -160,6 +183,9 @@ export function AutoDispatchPreviewModal({ orders, open, onClose }: Props) {
                       <div className="min-w-0">
                         <p className="font-mono text-sm font-semibold flex items-center gap-1.5">
                           <Truck className="h-3.5 w-3.5" /> {row.vehicle!.plateNumber}
+                          <Badge variant="default" className="text-[9px] inline-flex items-center gap-1">
+                            <Building2 className="h-2.5 w-2.5" /> Liên kết
+                          </Badge>
                         </p>
                         <p className="text-xs text-muted-foreground truncate">
                           {row.vehicle!.driverName} • Tải {formatKg(row.vehicle!.capacityKg)}
