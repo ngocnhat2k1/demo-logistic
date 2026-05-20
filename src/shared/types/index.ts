@@ -131,6 +131,7 @@ export interface Vehicle {
 export type OrderStatus =
   | "NEW"
   | "PENDING_DISPATCH"
+  | "PENDING_ACCEPT"
   | "DISPATCHED"
   | "PICKED_UP"
   | "IN_TRANSIT"
@@ -150,7 +151,17 @@ export interface DispatchAssignment {
   partLabel?: string;
   assignedAt: string;
   assignedBy: string;
-  status: "ASSIGNED" | "PICKED_UP" | "IN_TRANSIT" | "DELIVERED" | "FAILED";
+  status:
+    | "PENDING_ACCEPT"
+    | "ASSIGNED"
+    | "PICKED_UP"
+    | "IN_TRANSIT"
+    | "DELIVERED"
+    | "FAILED"
+    | "REJECTED";
+  acceptedAt?: string;
+  rejectedAt?: string;
+  rejectReason?: string;
 }
 
 export interface OrderEvent {
@@ -239,6 +250,7 @@ export type NotificationType =
   | "ORDER_DISPATCHED"
   | "ORDER_DELIVERED"
   | "ORDER_FAILED"
+  | "ASSIGNMENT_REJECTED"
   | "QUOTA_WARNING"
   | "EMERGENCY_SOS"
   | "ETA_UPDATE"
@@ -275,6 +287,7 @@ export interface SosAlert {
   location: LatLng;
   orderIds: string[];
   message?: string;
+  photos?: string[];
   resolved: boolean;
   createdAt: string;
   resolvedAt?: string;

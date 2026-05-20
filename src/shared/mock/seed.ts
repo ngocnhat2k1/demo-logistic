@@ -258,14 +258,18 @@ export function buildSeed() {
   const statusDistribution: OrderStatus[] = [
     ...Array(10).fill("NEW"),
     ...Array(8).fill("PENDING_DISPATCH"),
-    ...Array(8).fill("DISPATCHED"),
-    ...Array(5).fill("PICKED_UP"),
-    ...Array(8).fill("IN_TRANSIT"),
+    ...Array(3).fill("PENDING_ACCEPT"),
+    ...Array(5).fill("DISPATCHED"),
+    ...Array(4).fill("PICKED_UP"),
+    ...Array(6).fill("IN_TRANSIT"),
     ...Array(15).fill("DELIVERED"),
     ...Array(3).fill("DELIVERY_FAILED"),
     ...Array(2).fill("RETURN_PROCESSING"),
     ...Array(1).fill("CANCELLED"),
   ];
+  // Track per-vehicle inflight allocation to honour the "1 active + 1 pending" rule.
+  const vehicleActive: Record<string, number> = {};
+  const vehiclePending: Record<string, number> = {};
 
   const placeKeys = Object.keys(PLACES) as PlaceKey[];
 
@@ -304,12 +308,29 @@ export function buildSeed() {
       updatedAt: createdAt,
     };
 
-    if (
-      ["DISPATCHED", "PICKED_UP", "IN_TRANSIT", "DELIVERED", "DELIVERY_FAILED", "RETURN_PROCESSING"].includes(
-        status
-      )
-    ) {
-      const v = vehicles.find((vv) => vv.capacityKg >= weight && vv.status === "AVAILABLE") ?? vehicles[0];
+    const isActive = status === "DISPATCHED" || status === "PICKED_UP" || status === "IN_TRANSIT";
+    const isPending = status === "PENDING_ACCEPT";
+    const isTerminalWithAssignment =
+      status === "DELIVERED" || status === "DELIVERY_FAILED" || status === "RETURN_PROCESSING";
+
+    if (isActive || isPending || isTerminalWithAssignment) {
+      // For active/pending we must respect the 1-active + 1-pending per vehicle rule.
+      let v = isTerminalWithAssignment
+        ? vehicles.find((vv) => vv.capacityKg >= weight) ?? vehicles[0]
+        : vehicles.find(
+            (vv) =>
+              vv.capacityKg >= weight &&
+              (vehicleActive[vv.id] ?? 0) < (isActive ? 1 : 2) &&
+              (vehiclePending[vv.id] ?? 0) < (isPending ? 1 : 2) &&
+              (vehicleActive[vv.id] ?? 0) + (vehiclePending[vv.id] ?? 0) < 2
+          );
+      if (!v) {
+        // No vehicle has room — downgrade to PENDING_DISPATCH (unassigned).
+        order.status = "PENDING_DISPATCH";
+        orders.push(order);
+        continue;
+      }
+
       const assignment: DispatchAssignment = {
         id: uid("dasg"),
         orderId: order.id,
@@ -318,23 +339,34 @@ export function buildSeed() {
         assignedAt: createdAt,
         assignedBy: "user_dispatcher",
         status:
-          status === "DISPATCHED"
-            ? "ASSIGNED"
-            : status === "PICKED_UP"
-              ? "PICKED_UP"
-              : status === "IN_TRANSIT"
-                ? "IN_TRANSIT"
-                : status === "DELIVERED"
-                  ? "DELIVERED"
-                  : "FAILED",
+          status === "PENDING_ACCEPT"
+            ? "PENDING_ACCEPT"
+            : status === "DISPATCHED"
+              ? "ASSIGNED"
+              : status === "PICKED_UP"
+                ? "PICKED_UP"
+                : status === "IN_TRANSIT"
+                  ? "IN_TRANSIT"
+                  : status === "DELIVERED"
+                    ? "DELIVERED"
+                    : "FAILED",
       };
+      if (status === "DISPATCHED" || status === "PICKED_UP" || status === "IN_TRANSIT") {
+        assignment.acceptedAt = createdAt;
+      }
       order.assignments = [assignment];
 
-      if (status === "IN_TRANSIT" || status === "PICKED_UP") {
+      if (isActive) {
         v.status = "BUSY";
         v.activeAssignmentId = assignment.id;
         v.routePolyline = buildPolyline(order.pickup, order.dropoff, 14);
-        v.routeProgress = pick(rng, [0.15, 0.3, 0.45, 0.6, 0.75]);
+        v.routeProgress =
+          status === "DISPATCHED" ? 0 : pick(rng, [0.15, 0.3, 0.45, 0.6, 0.75]);
+        vehicleActive[v.id] = (vehicleActive[v.id] ?? 0) + 1;
+      } else if (isPending) {
+        // PENDING_ACCEPT marks the vehicle BUSY but no active route yet.
+        v.status = "BUSY";
+        vehiclePending[v.id] = (vehiclePending[v.id] ?? 0) + 1;
       }
 
       if (status === "DELIVERED") {
@@ -349,6 +381,7 @@ export function buildSeed() {
   const inflightStatuses: OrderStatus[] = [
     "NEW",
     "PENDING_DISPATCH",
+    "PENDING_ACCEPT",
     "DISPATCHED",
     "PICKED_UP",
     "IN_TRANSIT",

@@ -61,7 +61,13 @@ export function DispatchBoard() {
   const assignedOrders = useMemo(
     () =>
       orders
-        .filter((o) => o.status === "DISPATCHED" || o.status === "PICKED_UP" || o.status === "IN_TRANSIT")
+        .filter(
+          (o) =>
+            o.status === "PENDING_ACCEPT" ||
+            o.status === "DISPATCHED" ||
+            o.status === "PICKED_UP" ||
+            o.status === "IN_TRANSIT",
+        )
         .sort((a, b) => (b.updatedAt > a.updatedAt ? 1 : -1)),
     [orders],
   );
@@ -254,6 +260,7 @@ export function DispatchBoard() {
                     {assignedOrders.map((o) => {
                       const active = o.assignments.find(
                         (a) =>
+                          a.status === "PENDING_ACCEPT" ||
                           a.status === "ASSIGNED" ||
                           a.status === "PICKED_UP" ||
                           a.status === "IN_TRANSIT",
@@ -419,7 +426,11 @@ export function DispatchBoard() {
                   )}
                   {assignedOrders.map((o) => {
                     const active = o.assignments.find(
-                      (a) => a.status === "ASSIGNED" || a.status === "PICKED_UP" || a.status === "IN_TRANSIT",
+                      (a) =>
+                        a.status === "PENDING_ACCEPT" ||
+                        a.status === "ASSIGNED" ||
+                        a.status === "PICKED_UP" ||
+                        a.status === "IN_TRANSIT",
                     );
                     const v = active ? vehicles.find((x) => x.id === active.vehicleId) : null;
                     return (

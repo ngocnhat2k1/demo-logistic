@@ -3,6 +3,7 @@ import type { OrderStatus } from "@/shared/types";
 export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   NEW: "Mới",
   PENDING_DISPATCH: "Chờ điều phối",
+  PENDING_ACCEPT: "Chờ tài xế xác nhận",
   DISPATCHED: "Đã phân xe",
   PICKED_UP: "Đã lấy hàng",
   IN_TRANSIT: "Đang giao",
@@ -21,6 +22,7 @@ export const ORDER_STATUS_VARIANT: Record<
 > = {
   NEW: "secondary",
   PENDING_DISPATCH: "warning",
+  PENDING_ACCEPT: "warning",
   DISPATCHED: "default",
   PICKED_UP: "default",
   IN_TRANSIT: "default",
@@ -34,7 +36,7 @@ export const ORDER_STATUS_VARIANT: Record<
 };
 
 export function isInProgress(s: OrderStatus): boolean {
-  return ["DISPATCHED", "PICKED_UP", "IN_TRANSIT"].includes(s);
+  return ["PENDING_ACCEPT", "DISPATCHED", "PICKED_UP", "IN_TRANSIT"].includes(s);
 }
 
 export function isPending(s: OrderStatus): boolean {
@@ -42,7 +44,7 @@ export function isPending(s: OrderStatus): boolean {
 }
 
 export function canEdit(s: OrderStatus): boolean {
-  return ["NEW", "PENDING_DISPATCH", "DISPATCHED"].includes(s);
+  return ["NEW", "PENDING_DISPATCH", "PENDING_ACCEPT", "DISPATCHED"].includes(s);
 }
 
 export function canCancel(s: OrderStatus): boolean {

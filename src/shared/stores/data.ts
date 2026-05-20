@@ -119,6 +119,8 @@ interface DataState {
   cancelOrder: (id: string, actorId: string) => void;
   setOrderStatus: (id: string, status: OrderStatus, actorId: string, payload?: Record<string, unknown>) => void;
   assignOrderToVehicle: (orderId: string, vehicleId: string, actorId: string, weightKg?: number, partLabel?: string) => DispatchAssignment | null;
+  acceptAssignment: (orderId: string, assignmentId: string, actorId: string) => { ok: boolean; reason?: string };
+  rejectAssignment: (orderId: string, assignmentId: string, actorId: string, reason: string) => { ok: boolean; reason?: string };
   unassignOrder: (orderId: string, assignmentId: string, actorId: string) => void;
   splitOrder: (orderId: string, parts: number[]) => string[];
   reportDeliveryFailure: (orderId: string, reasonId: string, notes: string, photos: string[], actorId: string) => void;
@@ -172,7 +174,13 @@ interface DataState {
   pushMessage: (m: Omit<MockMessage, "id" | "createdAt">) => void;
 
   // sos
-  raiseSos: (vehicleId: string, location: { lat: number; lng: number }, orderIds: string[], message?: string) => SosAlert;
+  raiseSos: (
+    vehicleId: string,
+    location: { lat: number; lng: number },
+    orderIds: string[],
+    message?: string,
+    photos?: string[]
+  ) => SosAlert;
   resolveSos: (id: string) => void;
 
   // cyber
@@ -902,7 +910,28 @@ export const useDataStore = create<DataState>()(
         if (!order || !vehicle) return null;
         const w = weightKg ?? order.weightKg;
         if (vehicle.capacityKg < w) return null;
-        if (vehicle.status !== "AVAILABLE") return null;
+        if (vehicle.status === "MAINTENANCE" || vehicle.status === "BROKEN" || vehicle.status === "OFF_DUTY") {
+          return null;
+        }
+
+        // Queue policy: at most 1 active + 1 pending-accept per vehicle.
+        let activeCount = 0;
+        let pendingCount = 0;
+        for (const o of get().orders) {
+          for (const a of o.assignments) {
+            if (a.vehicleId !== vehicleId) continue;
+            if (a.status === "PENDING_ACCEPT") pendingCount++;
+            else if (a.status === "ASSIGNED" || a.status === "PICKED_UP" || a.status === "IN_TRANSIT") {
+              activeCount++;
+            }
+          }
+        }
+        if (pendingCount >= 1 && activeCount >= 1) return null;
+        if (pendingCount >= 1) return null;
+        if (activeCount >= 1 && pendingCount >= 1) return null;
+        // Allow when (active=0,pending=0), (active=1,pending=0). Otherwise block.
+        if (activeCount + pendingCount >= 2) return null;
+
         const assignment: DispatchAssignment = {
           id: uid("dasg"),
           orderId,
@@ -911,21 +940,22 @@ export const useDataStore = create<DataState>()(
           partLabel,
           assignedAt: nowIso(),
           assignedBy: actorId,
-          status: "ASSIGNED",
+          status: "PENDING_ACCEPT",
         };
+
         set({
           orders: get().orders.map((o) =>
             o.id === orderId
               ? {
                   ...o,
-                  status: "DISPATCHED",
+                  status: "PENDING_ACCEPT",
                   updatedAt: nowIso(),
                   assignments: [...o.assignments, assignment],
                   events: [
                     ...o.events,
                     {
                       id: uid("evt"),
-                      type: "DISPATCHED",
+                      type: "ASSIGNMENT_PENDING_ACCEPT",
                       payload: { vehicleId, weightKg: w, partLabel },
                       actorId,
                       at: nowIso(),
@@ -939,7 +969,50 @@ export const useDataStore = create<DataState>()(
               ? {
                   ...v,
                   status: "BUSY",
-                  activeAssignmentId: assignment.id,
+                  // routePolyline/activeAssignmentId set on driver accept, not here.
+                }
+              : v
+          ),
+        });
+        return assignment;
+      },
+
+      acceptAssignment: (orderId, assignmentId, actorId) => {
+        const order = get().orders.find((o) => o.id === orderId);
+        if (!order) return { ok: false, reason: "Không tìm thấy đơn" };
+        const a = order.assignments.find((x) => x.id === assignmentId);
+        if (!a) return { ok: false, reason: "Không tìm thấy phân công" };
+        if (a.status !== "PENDING_ACCEPT") return { ok: false, reason: "Phân công không ở trạng thái chờ xác nhận" };
+
+        const at = nowIso();
+        set({
+          orders: get().orders.map((o) =>
+            o.id === orderId
+              ? {
+                  ...o,
+                  status: "DISPATCHED",
+                  updatedAt: at,
+                  assignments: o.assignments.map((x) =>
+                    x.id === assignmentId ? { ...x, status: "ASSIGNED", acceptedAt: at } : x
+                  ),
+                  events: [
+                    ...o.events,
+                    {
+                      id: uid("evt"),
+                      type: "ACCEPTED_BY_DRIVER",
+                      payload: { assignmentId },
+                      actorId,
+                      at,
+                    },
+                  ],
+                }
+              : o
+          ),
+          vehicles: get().vehicles.map((v) =>
+            v.id === a.vehicleId && !v.activeAssignmentId
+              ? {
+                  ...v,
+                  activeAssignmentId: assignmentId,
                   routePolyline: buildPolyline(order.pickup, order.dropoff, 14),
                   routeProgress: 0,
                   currentLocation: order.pickup,
@@ -947,7 +1020,86 @@ export const useDataStore = create<DataState>()(
               : v
           ),
         });
-        return assignment;
+        return { ok: true };
+      },
+
+      rejectAssignment: (orderId, assignmentId, actorId, reason) => {
+        const trimmed = (reason ?? "").trim();
+        if (!trimmed) return { ok: false, reason: "Vui lòng nhập lý do từ chối" };
+
+        const order = get().orders.find((o) => o.id === orderId);
+        if (!order) return { ok: false, reason: "Không tìm thấy đơn" };
+        const a = order.assignments.find((x) => x.id === assignmentId);
+        if (!a) return { ok: false, reason: "Không tìm thấy phân công" };
+        if (a.status !== "PENDING_ACCEPT") {
+          return { ok: false, reason: "Chỉ có thể từ chối phân công chưa được xác nhận" };
+        }
+
+        const at = nowIso();
+        const remaining = order.assignments.filter(
+          (x) => x.id !== assignmentId && x.status !== "REJECTED"
+        );
+
+        set({
+          orders: get().orders.map((o) =>
+            o.id === orderId
+              ? {
+                  ...o,
+                  status: remaining.length === 0 ? "PENDING_DISPATCH" : o.status,
+                  updatedAt: at,
+                  assignments: o.assignments.filter((x) => x.id !== assignmentId),
+                  events: [
+                    ...o.events,
+                    {
+                      id: uid("evt"),
+                      type: "REJECTED_BY_DRIVER",
+                      payload: { assignmentId, reason: trimmed, vehicleId: a.vehicleId },
+                      actorId,
+                      at,
+                    },
+                  ],
+                }
+              : o
+          ),
+          vehicles: get().vehicles.map((v) => {
+            if (v.id !== a.vehicleId) return v;
+            const stillBusy = get().orders.some((o) =>
+              o.assignments.some(
+                (x) =>
+                  x.vehicleId === v.id &&
+                  x.id !== assignmentId &&
+                  (x.status === "PENDING_ACCEPT" ||
+                    x.status === "ASSIGNED" ||
+                    x.status === "PICKED_UP" ||
+                    x.status === "IN_TRANSIT")
+              )
+            );
+            const wasActive = v.activeAssignmentId === assignmentId;
+            if (!stillBusy) {
+              return {
+                ...v,
+                status: "AVAILABLE",
+                activeAssignmentId: undefined,
+                routePolyline: undefined,
+                routeProgress: undefined,
+              };
+            }
+            // Still busy with another assignment; only clear active fields if rejected one was active.
+            return wasActive
+              ? { ...v, activeAssignmentId: undefined, routePolyline: undefined, routeProgress: undefined }
+              : v;
+          }),
+        });
+
+        get().pushNotification({
+          type: "ASSIGNMENT_REJECTED",
+          severity: "warning",
+          title: "Tài xế từ chối phân công",
+          message: `Đơn ${order.code} đã bị tài xế từ chối: ${trimmed}`,
+          targetRoles: ["DISPATCHER", "OPS_MANAGER"],
+        });
+
+        return { ok: true };
       },
 
       unassignOrder: (orderId, assignmentId, actorId) => {
@@ -1357,13 +1509,14 @@ export const useDataStore = create<DataState>()(
         set({ messages: [item, ...get().messages].slice(0, 50) });
       },
 
-      raiseSos: (vehicleId, location, orderIds, message) => {
+      raiseSos: (vehicleId, location, orderIds, message, photos) => {
         const sos: SosAlert = {
           id: uid("sos"),
           vehicleId,
           location,
           orderIds,
           message,
+          photos,
           resolved: false,
           createdAt: nowIso(),
         };
