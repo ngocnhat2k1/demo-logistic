@@ -32,24 +32,31 @@ import { AISuggestModal } from "./AISuggestModal";
 import { AcceptDispatchDialog } from "./AcceptDispatchDialog";
 import { MobileAssignSheet } from "./MobileAssignSheet";
 import { AutoDispatchPreviewModal } from "./AutoDispatchPreviewModal";
+import { CarrierPickerSheet } from "./CarrierPickerSheet";
+import { SupervisorReviewDialog } from "./SupervisorReviewDialog";
 import { Button } from "@/shared/ui/button";
 import { MapCanvas } from "@/shared/map";
-import type { Order, Vehicle } from "@/shared/types";
+import type { Carrier, Order, Vehicle } from "@/shared/types";
+import { ShieldCheck, ShieldAlert, Clock } from "lucide-react";
 import Link from "next/link";
 
 type MobileTab = "orders" | "map" | "vehicles";
-type OrdersTab = "pending" | "assigned";
+type OrdersTab = "pending" | "review" | "assigned";
 
 export function DispatchBoard() {
   const orders = useDataStore((s) => s.orders);
   const vehicles = useDataStore((s) => s.vehicles);
+  const carriers = useDataStore((s) => s.carriers);
   const customers = useDataStore((s) => s.customers);
   const unassignOrder = useDataStore((s) => s.unassignOrder);
+  const submitOrderCarrier = useDataStore((s) => s.submitOrderCarrier);
   const user = useAuthStore((s) => s.currentUser);
 
   const [aiOrder, setAiOrder] = useState<Order | null>(null);
   const [acceptCtx, setAcceptCtx] = useState<{ order: Order; vehicle: Vehicle } | null>(null);
-  const [assignOrder, setAssignOrder] = useState<Order | null>(null);
+  const [carrierPickOrder, setCarrierPickOrder] = useState<Order | null>(null);
+  const [assignCtx, setAssignCtx] = useState<{ order: Order; carrierId: string } | null>(null);
+  const [reviewOrder, setReviewOrder] = useState<Order | null>(null);
   const [mobileTab, setMobileTab] = useState<MobileTab>("orders");
   const [ordersTab, setOrdersTab] = useState<OrdersTab>("pending");
   const [autoOpen, setAutoOpen] = useState(false);
@@ -58,15 +65,51 @@ export function DispatchBoard() {
     () => orders.filter((o) => o.status === "NEW" || o.status === "PENDING_DISPATCH"),
     [orders],
   );
+  const reviewOrders = useMemo(
+    () =>
+      orders
+        .filter((o) => o.status === "PENDING_SUPERVISOR_REVIEW")
+        .sort((a, b) => (b.updatedAt > a.updatedAt ? 1 : -1)),
+    [orders],
+  );
   const assignedOrders = useMemo(
     () =>
       orders
-        .filter((o) => o.status === "DISPATCHED" || o.status === "PICKED_UP" || o.status === "IN_TRANSIT")
+        .filter(
+          (o) =>
+            o.status === "PENDING_ACCEPT" ||
+            o.status === "DISPATCHED" ||
+            o.status === "PICKED_UP" ||
+            o.status === "IN_TRANSIT",
+        )
         .sort((a, b) => (b.updatedAt > a.updatedAt ? 1 : -1)),
     [orders],
   );
   const availableVehicles = useMemo(() => vehicles.filter((v) => v.status === "AVAILABLE"), [vehicles]);
   const busyVehicles = useMemo(() => vehicles.filter((v) => v.status === "BUSY"), [vehicles]);
+  const canReview = user?.role === "ADMIN" || user?.role === "OPS_MANAGER";
+
+  function handlePickCarrier(carrier: Carrier) {
+    if (!user || !carrierPickOrder) return;
+    const res = submitOrderCarrier(carrierPickOrder.id, carrier.id, user.id);
+    if (!res.ok) {
+      toast.error(res.reason || "Không chọn được NCC");
+      return;
+    }
+    if (res.needsReview) {
+      toast.success(`Đã gửi ${carrierPickOrder.code} lên giám sát duyệt`);
+      setCarrierPickOrder(null);
+      return;
+    }
+    setAssignCtx({ order: carrierPickOrder, carrierId: carrier.id });
+    setCarrierPickOrder(null);
+  }
+
+  function handlePickVehicleAfterCarrier(v: Vehicle) {
+    if (!assignCtx) return;
+    setAcceptCtx({ order: assignCtx.order, vehicle: v });
+    setAssignCtx(null);
+  }
 
   function handleUnassign(order: Order) {
     if (!user) return;
@@ -90,13 +133,21 @@ export function DispatchBoard() {
     const order = orders.find((o) => o.id === orderId);
     const vehicle = vehicles.find((v) => v.id === vehicleId);
     if (!order || !vehicle) return;
+    const carrier = carriers.find((c) => c.id === vehicle.carrierId);
+    if (!carrier) {
+      setAcceptCtx({ order, vehicle });
+      return;
+    }
+    const res = submitOrderCarrier(order.id, carrier.id, user.id);
+    if (!res.ok) {
+      toast.error(res.reason || "Không chọn được NCC cho đơn");
+      return;
+    }
+    if (res.needsReview) {
+      toast.success(`Đã gửi ${order.code} (NCC dự phòng ${carrier.name}) lên giám sát duyệt`);
+      return;
+    }
     setAcceptCtx({ order, vehicle });
-  }
-
-  function pickVehicleForMobileAssign(v: Vehicle) {
-    if (!assignOrder) return;
-    setAcceptCtx({ order: assignOrder, vehicle: v });
-    setAssignOrder(null);
   }
 
   // Map markers
@@ -141,8 +192,8 @@ export function DispatchBoard() {
 
   return (
     <DndContext sensors={sensors} onDragEnd={onDragEnd}>
-      {/* ===== MOBILE: tabs + tap-to-assign ===== */}
-      <div className="md:hidden flex flex-col h-full gap-3">
+      {/* ===== MOBILE / TABLET (<1024px): tabs + tap-to-assign ===== */}
+      <div className="lg:hidden flex flex-col h-full gap-3">
         {/* Hint banner */}
         <div className="rounded-md bg-primary/5 border border-primary/20 px-3 py-2 text-xs text-primary flex items-start gap-2">
           <Hand className="h-3.5 w-3.5 mt-0.5 shrink-0" />
@@ -176,11 +227,11 @@ export function DispatchBoard() {
           {mobileTab === "orders" && (
             <Card className="h-full flex flex-col">
               <div className="p-3 space-y-2 border-b">
-                <div className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
+                <div className="grid grid-cols-3 gap-1 rounded-md bg-muted p-1">
                   <button
                     onClick={() => setOrdersTab("pending")}
                     className={cn(
-                      "flex items-center justify-center gap-1.5 rounded px-2 py-1.5 text-xs transition",
+                      "flex items-center justify-center gap-1 rounded px-1.5 py-1.5 text-[11px] transition",
                       ordersTab === "pending"
                         ? "bg-background shadow-sm font-semibold"
                         : "text-muted-foreground hover:text-foreground",
@@ -190,15 +241,33 @@ export function DispatchBoard() {
                     Chờ phân
                     <Badge
                       variant={ordersTab === "pending" ? "secondary" : "outline"}
-                      className="text-[10px] h-4 px-1.5"
+                      className="text-[10px] h-4 px-1"
                     >
                       {pendingOrders.length}
                     </Badge>
                   </button>
                   <button
+                    onClick={() => setOrdersTab("review")}
+                    className={cn(
+                      "flex items-center justify-center gap-1 rounded px-1.5 py-1.5 text-[11px] transition",
+                      ordersTab === "review"
+                        ? "bg-background shadow-sm font-semibold"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    <ShieldAlert className="h-3.5 w-3.5" />
+                    Chờ duyệt
+                    <Badge
+                      variant={ordersTab === "review" ? "warning" : "outline"}
+                      className="text-[10px] h-4 px-1"
+                    >
+                      {reviewOrders.length}
+                    </Badge>
+                  </button>
+                  <button
                     onClick={() => setOrdersTab("assigned")}
                     className={cn(
-                      "flex items-center justify-center gap-1.5 rounded px-2 py-1.5 text-xs transition",
+                      "flex items-center justify-center gap-1 rounded px-1.5 py-1.5 text-[11px] transition",
                       ordersTab === "assigned"
                         ? "bg-background shadow-sm font-semibold"
                         : "text-muted-foreground hover:text-foreground",
@@ -208,7 +277,7 @@ export function DispatchBoard() {
                     Đã phân
                     <Badge
                       variant={ordersTab === "assigned" ? "secondary" : "outline"}
-                      className="text-[10px] h-4 px-1.5"
+                      className="text-[10px] h-4 px-1"
                     >
                       {assignedOrders.length}
                     </Badge>
@@ -227,7 +296,7 @@ export function DispatchBoard() {
                 )}
               </div>
               <CardContent className="flex-1 overflow-y-auto p-3 space-y-2">
-                {ordersTab === "pending" ? (
+                {ordersTab === "pending" && (
                   <>
                     {pendingOrders.length === 0 && (
                       <div className="text-center py-12 text-sm text-muted-foreground">
@@ -239,12 +308,32 @@ export function DispatchBoard() {
                         key={o.id}
                         order={o}
                         customerName={customerName(o.customerId)}
-                        onAssign={() => setAssignOrder(o)}
+                        onAssign={() => setCarrierPickOrder(o)}
                         onSuggest={() => setAiOrder(o)}
                       />
                     ))}
                   </>
-                ) : (
+                )}
+                {ordersTab === "review" && (
+                  <>
+                    {reviewOrders.length === 0 && (
+                      <div className="text-center py-12 text-sm text-muted-foreground">
+                        Không có đơn nào đang chờ duyệt
+                      </div>
+                    )}
+                    {reviewOrders.map((o) => (
+                      <ReviewOrderCard
+                        key={o.id}
+                        order={o}
+                        customerName={customerName(o.customerId)}
+                        carrierName={carriers.find((c) => c.id === o.carrierId)?.name ?? "—"}
+                        canReview={canReview}
+                        onReview={() => setReviewOrder(o)}
+                      />
+                    ))}
+                  </>
+                )}
+                {ordersTab === "assigned" && (
                   <>
                     {assignedOrders.length === 0 && (
                       <div className="text-center py-12 text-sm text-muted-foreground">
@@ -254,6 +343,7 @@ export function DispatchBoard() {
                     {assignedOrders.map((o) => {
                       const active = o.assignments.find(
                         (a) =>
+                          a.status === "PENDING_ACCEPT" ||
                           a.status === "ASSIGNED" ||
                           a.status === "PICKED_UP" ||
                           a.status === "IN_TRANSIT",
@@ -337,44 +427,63 @@ export function DispatchBoard() {
         </div>
       </div>
 
-      {/* ===== DESKTOP: 3-col with drag-drop ===== */}
-      <div className="hidden md:grid grid-cols-12 gap-4 h-full">
-        <div className="col-span-3 flex flex-col min-h-0">
+      {/* ===== DESKTOP (≥1024px): balanced 3-pane with drag-drop ===== */}
+      <div className="hidden lg:flex gap-3 xl:gap-4 h-full">
+        {/* ---- LEFT: Orders panel ---- */}
+        <aside className="flex flex-col min-h-0 shrink-0 w-72 xl:w-80 2xl:w-96">
           <Card className="flex flex-col h-full max-h-[calc(100vh-7rem)]">
-            <CardHeader className="pb-2 space-y-2">
-              <div className="grid grid-cols-2 gap-1 rounded-md bg-muted p-1">
+            <CardHeader className="pb-2 space-y-2 px-3 pt-3">
+              <div className="grid grid-cols-3 gap-1 rounded-md bg-muted p-1">
                 <button
                   onClick={() => setOrdersTab("pending")}
                   className={cn(
-                    "flex items-center justify-center gap-1.5 rounded px-2 py-1.5 text-xs transition",
+                    "flex items-center justify-center gap-1 rounded px-1 py-1.5 text-[11px] xl:text-xs transition whitespace-nowrap",
                     ordersTab === "pending"
                       ? "bg-background shadow-sm font-semibold"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  <Package className="h-3.5 w-3.5" />
-                  Chờ phân
+                  <Package className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">Chờ phân</span>
                   <Badge
                     variant={ordersTab === "pending" ? "secondary" : "outline"}
-                    className="text-[10px] h-4 px-1.5"
+                    className="text-[10px] h-4 px-1 shrink-0"
                   >
                     {pendingOrders.length}
                   </Badge>
                 </button>
                 <button
+                  onClick={() => setOrdersTab("review")}
+                  className={cn(
+                    "flex items-center justify-center gap-1 rounded px-1 py-1.5 text-[11px] xl:text-xs transition whitespace-nowrap",
+                    ordersTab === "review"
+                      ? "bg-background shadow-sm font-semibold"
+                      : "text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <ShieldAlert className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">Chờ duyệt</span>
+                  <Badge
+                    variant={ordersTab === "review" ? "warning" : "outline"}
+                    className="text-[10px] h-4 px-1 shrink-0"
+                  >
+                    {reviewOrders.length}
+                  </Badge>
+                </button>
+                <button
                   onClick={() => setOrdersTab("assigned")}
                   className={cn(
-                    "flex items-center justify-center gap-1.5 rounded px-2 py-1.5 text-xs transition",
+                    "flex items-center justify-center gap-1 rounded px-1 py-1.5 text-[11px] xl:text-xs transition whitespace-nowrap",
                     ordersTab === "assigned"
                       ? "bg-background shadow-sm font-semibold"
                       : "text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  <CheckCircle2 className="h-3.5 w-3.5" />
-                  Đã phân
+                  <CheckCircle2 className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">Đã phân</span>
                   <Badge
                     variant={ordersTab === "assigned" ? "secondary" : "outline"}
-                    className="text-[10px] h-4 px-1.5"
+                    className="text-[10px] h-4 px-1 shrink-0"
                   >
                     {assignedOrders.length}
                   </Badge>
@@ -393,7 +502,7 @@ export function DispatchBoard() {
               )}
             </CardHeader>
             <CardContent className="flex-1 overflow-y-auto space-y-2 p-3 pt-1">
-              {ordersTab === "pending" ? (
+              {ordersTab === "pending" && (
                 <>
                   {pendingOrders.length === 0 && (
                     <p className="text-xs text-muted-foreground text-center py-4">
@@ -406,11 +515,31 @@ export function DispatchBoard() {
                       order={o}
                       customerName={customerName(o.customerId)}
                       onSuggest={() => setAiOrder(o)}
-                      onAssign={() => setAssignOrder(o)}
+                      onAssign={() => setCarrierPickOrder(o)}
                     />
                   ))}
                 </>
-              ) : (
+              )}
+              {ordersTab === "review" && (
+                <>
+                  {reviewOrders.length === 0 && (
+                    <p className="text-xs text-muted-foreground text-center py-4">
+                      Không có đơn nào đang chờ duyệt
+                    </p>
+                  )}
+                  {reviewOrders.map((o) => (
+                    <ReviewOrderCard
+                      key={o.id}
+                      order={o}
+                      customerName={customerName(o.customerId)}
+                      carrierName={carriers.find((c) => c.id === o.carrierId)?.name ?? "—"}
+                      canReview={canReview}
+                      onReview={() => setReviewOrder(o)}
+                    />
+                  ))}
+                </>
+              )}
+              {ordersTab === "assigned" && (
                 <>
                   {assignedOrders.length === 0 && (
                     <p className="text-xs text-muted-foreground text-center py-4">
@@ -419,7 +548,11 @@ export function DispatchBoard() {
                   )}
                   {assignedOrders.map((o) => {
                     const active = o.assignments.find(
-                      (a) => a.status === "ASSIGNED" || a.status === "PICKED_UP" || a.status === "IN_TRANSIT",
+                      (a) =>
+                        a.status === "PENDING_ACCEPT" ||
+                        a.status === "ASSIGNED" ||
+                        a.status === "PICKED_UP" ||
+                        a.status === "IN_TRANSIT",
                     );
                     const v = active ? vehicles.find((x) => x.id === active.vehicleId) : null;
                     return (
@@ -437,10 +570,11 @@ export function DispatchBoard() {
               )}
             </CardContent>
           </Card>
-        </div>
+        </aside>
 
-        <div className="col-span-6 min-h-0">
-          <Card className="h-full max-h-[calc(100vh-7rem)] overflow-hidden">
+        {/* ---- CENTER: Map (flex-1, fills remaining space) ---- */}
+        <section className="flex-1 min-w-0 min-h-0">
+          <Card className="relative h-full max-h-[calc(100vh-7rem)] overflow-hidden">
             <div className="h-full">
               <MapCanvas
                 center={{ lat: 10.85, lng: 106.7 }}
@@ -450,40 +584,74 @@ export function DispatchBoard() {
                 className="h-full w-full"
               />
             </div>
+            {/* Floating stats overlay — gives the map context without clutter */}
+            <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1.5 text-[11px]">
+              <div className="rounded-md bg-background/85 backdrop-blur-sm border shadow-sm px-2.5 py-1.5 flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-emerald-500" />
+                <span className="text-muted-foreground">Sẵn sàng</span>
+                <span className="font-semibold tabular-nums">{availableVehicles.length}</span>
+              </div>
+              <div className="rounded-md bg-background/85 backdrop-blur-sm border shadow-sm px-2.5 py-1.5 flex items-center gap-2">
+                <span className="h-2 w-2 rounded-full bg-blue-500" />
+                <span className="text-muted-foreground">Đang chạy</span>
+                <span className="font-semibold tabular-nums">{busyVehicles.length}</span>
+              </div>
+              <div className="rounded-md bg-background/85 backdrop-blur-sm border shadow-sm px-2.5 py-1.5 flex items-center gap-2">
+                <Package className="h-3 w-3 text-muted-foreground" />
+                <span className="text-muted-foreground">Đơn chờ</span>
+                <span className="font-semibold tabular-nums">{pendingOrders.length}</span>
+              </div>
+            </div>
           </Card>
-        </div>
+        </section>
 
-        <div className="col-span-3 flex flex-col min-h-0">
+        {/* ---- RIGHT: Vehicles panel ---- */}
+        <aside className="flex flex-col min-h-0 shrink-0 w-60 xl:w-72 2xl:w-80">
           <Card className="flex flex-col h-full max-h-[calc(100vh-7rem)]">
-            <CardHeader className="pb-3">
-              <div className="flex items-center justify-between">
+            <CardHeader className="pb-3 px-3 pt-3">
+              <div className="flex items-center justify-between gap-2">
                 <CardTitle className="text-sm flex items-center gap-2">
                   <Truck className="h-4 w-4" /> Xe
                 </CardTitle>
-                <Badge variant="secondary">{availableVehicles.length} sẵn sàng</Badge>
+                <Badge variant="secondary" className="shrink-0">
+                  {availableVehicles.length} sẵn sàng
+                </Badge>
               </div>
             </CardHeader>
-            <CardContent className="flex-1 overflow-y-auto space-y-2 p-3">
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
-                Sẵn sàng
-              </p>
+            <CardContent className="flex-1 overflow-y-auto space-y-2 p-3 pt-0">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                  Sẵn sàng
+                </p>
+                <span className="text-[10px] text-muted-foreground tabular-nums">
+                  {availableVehicles.length}
+                </span>
+              </div>
               {availableVehicles.map((v) => (
                 <DroppableVehicle key={v.id} vehicle={v} />
               ))}
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold mt-3">
-                Đang chạy
-              </p>
+              <div className="flex items-center justify-between mt-3">
+                <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
+                  Đang chạy
+                </p>
+                <span className="text-[10px] text-muted-foreground tabular-nums">
+                  {busyVehicles.length}
+                </span>
+              </div>
               {busyVehicles.map((v) => (
-                <div key={v.id} className="rounded-md border bg-muted/50 p-2 text-xs opacity-70">
-                  <p className="font-mono font-semibold">{v.plateNumber}</p>
-                  <p className="text-muted-foreground">
-                    {v.driverName} • {Math.round((v.routeProgress ?? 0) * 100)}%
-                  </p>
+                <div key={v.id} className="rounded-md border bg-muted/40 p-2 text-xs opacity-80">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="font-mono font-semibold truncate">{v.plateNumber}</p>
+                    <span className="text-[10px] font-medium text-muted-foreground tabular-nums shrink-0">
+                      {Math.round((v.routeProgress ?? 0) * 100)}%
+                    </span>
+                  </div>
+                  <p className="text-muted-foreground truncate">{v.driverName}</p>
                 </div>
               ))}
             </CardContent>
           </Card>
-        </div>
+        </aside>
       </div>
 
       <AISuggestModal order={aiOrder} open={!!aiOrder} onClose={() => setAiOrder(null)} />
@@ -492,10 +660,26 @@ export function DispatchBoard() {
         vehicle={acceptCtx?.vehicle ?? null}
         onClose={() => setAcceptCtx(null)}
       />
+      <CarrierPickerSheet
+        order={carrierPickOrder}
+        onClose={() => setCarrierPickOrder(null)}
+        onPickCarrier={handlePickCarrier}
+      />
       <MobileAssignSheet
-        order={assignOrder}
-        onClose={() => setAssignOrder(null)}
-        onPickVehicle={pickVehicleForMobileAssign}
+        order={assignCtx?.order ?? null}
+        carrierId={assignCtx?.carrierId ?? null}
+        onClose={() => setAssignCtx(null)}
+        onPickVehicle={handlePickVehicleAfterCarrier}
+        onBack={() => {
+          if (assignCtx) {
+            setCarrierPickOrder(assignCtx.order);
+            setAssignCtx(null);
+          }
+        }}
+      />
+      <SupervisorReviewDialog
+        order={reviewOrder}
+        onClose={() => setReviewOrder(null)}
       />
       <AutoDispatchPreviewModal
         orders={pendingOrders}
@@ -503,6 +687,60 @@ export function DispatchBoard() {
         onClose={() => setAutoOpen(false)}
       />
     </DndContext>
+  );
+}
+
+function ReviewOrderCard({
+  order,
+  customerName,
+  carrierName,
+  canReview,
+  onReview,
+}: {
+  order: Order;
+  customerName: string;
+  carrierName: string;
+  canReview: boolean;
+  onReview: () => void;
+}) {
+  const requestedAt = order.supervisorReview?.requestedAt
+    ? new Date(order.supervisorReview.requestedAt).toLocaleString("vi-VN")
+    : "—";
+  return (
+    <div className="rounded-md border bg-card p-2.5 text-xs space-y-1.5">
+      <div className="flex items-start justify-between gap-2">
+        <div className="flex-1 min-w-0">
+          <Link
+            href={`/orders/${order.id}`}
+            className="font-mono font-semibold text-primary hover:underline"
+          >
+            {order.code}
+          </Link>
+          <p className="font-medium truncate">{customerName}</p>
+          <p className="text-muted-foreground truncate text-[10px]">
+            <MapPin className="inline h-3 w-3" /> {order.dropoff.address}
+          </p>
+        </div>
+        <Badge variant="warning" className="shrink-0 text-[10px]">
+          Chờ giám sát duyệt
+        </Badge>
+      </div>
+      <div className="flex items-center justify-between rounded bg-warning/10 px-2 py-1 text-[10px] text-warning">
+        <span className="inline-flex items-center gap-1 truncate">
+          <Clock className="h-3 w-3 shrink-0" />
+          {requestedAt}
+        </span>
+        <span className="font-medium truncate ml-2">NCC: {carrierName}</span>
+      </div>
+      {canReview && (
+        <button
+          onClick={onReview}
+          className="w-full flex items-center justify-center gap-1 rounded-md border border-primary/40 bg-primary/5 px-2 py-1 text-[10px] font-medium text-primary hover:bg-primary/10"
+        >
+          <ShieldCheck className="h-3 w-3" /> Duyệt đơn
+        </button>
+      )}
+    </div>
   );
 }
 
@@ -665,7 +903,7 @@ function DraggableOrderCard({
       ref={setNodeRef}
       style={style}
       className={`rounded-md border bg-card p-2.5 text-xs cursor-grab transition ${
-        isDragging ? "shadow-lg" : "hover:border-primary"
+        isDragging ? "shadow-lg" : "hover:border-primary hover:shadow-sm"
       }`}
       {...attributes}
       {...listeners}
@@ -679,9 +917,10 @@ function DraggableOrderCard({
           >
             {order.code}
           </Link>
-          <p className="font-medium truncate">{customerName}</p>
-          <p className="text-muted-foreground truncate text-[10px]">
-            <MapPin className="inline h-3 w-3" /> {order.dropoff.address}
+          <p className="font-medium line-clamp-2 leading-snug">{customerName}</p>
+          <p className="text-muted-foreground line-clamp-2 leading-snug text-[10px] mt-0.5">
+            <MapPin className="inline h-3 w-3 mr-0.5" />
+            {order.dropoff.address}
           </p>
         </div>
         <Badge variant="outline" className="shrink-0">
@@ -727,20 +966,23 @@ function DroppableVehicle({ vehicle }: { vehicle: Vehicle }) {
         isOver
           ? wouldOverflow
             ? "border-destructive bg-destructive/10"
-            : "border-primary bg-primary/10"
-          : "bg-card hover:border-primary/50"
+            : "border-primary bg-primary/10 shadow-sm"
+          : "bg-card hover:border-primary/50 hover:shadow-sm"
       }`}
     >
-      <div className="flex items-center justify-between">
-        <p className="font-mono font-semibold">{vehicle.plateNumber}</p>
-        <Badge variant="success" className="text-[10px]">
+      <div className="flex items-center justify-between gap-2">
+        <p className="font-mono font-semibold truncate">{vehicle.plateNumber}</p>
+        <Badge variant="success" className="text-[10px] shrink-0">
           Sẵn sàng
         </Badge>
       </div>
-      <p className="text-muted-foreground truncate">{vehicle.driverName}</p>
-      <p className="text-muted-foreground">
-        Tải: {formatKg(vehicle.capacityKg)} • {vehicle.type}
-      </p>
+      <p className="text-muted-foreground line-clamp-1 leading-snug">{vehicle.driverName}</p>
+      <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-muted-foreground">
+        <span className="truncate">Tải: {formatKg(vehicle.capacityKg)}</span>
+        <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-medium text-foreground/70">
+          {vehicle.type}
+        </span>
+      </div>
       {isOver && wouldOverflow && (
         <p className="mt-1 flex items-center gap-1 text-destructive font-medium">
           <AlertTriangle className="h-3 w-3" /> Vượt tải!

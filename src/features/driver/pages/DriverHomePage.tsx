@@ -5,10 +5,12 @@ import { useAuthStore } from "@/features/auth/stores/auth";
 import { Card, CardContent } from "@/shared/ui/card";
 import { Badge } from "@/shared/ui/badge";
 import { StatusBadge } from "@/features/orders/components/StatusBadge";
-import { Package, MapPin, Truck, ArrowRight, Gauge, AlertTriangle, Wrench } from "lucide-react";
+import { Package, MapPin, Truck, ArrowRight, Gauge, AlertTriangle, Wrench, Info } from "lucide-react";
 import Link from "next/link";
 import { formatKg } from "@/shared/utils";
 import { formatKm, getMaintenanceInfo } from "@/features/fleet/utils";
+import { PendingAssignmentCard } from "@/features/driver/components/PendingAssignmentCard";
+import { OdometerUpdateDialog } from "@/features/driver/components/OdometerUpdateDialog";
 
 export default function DriverHomePage() {
   const user = useAuthStore((s) => s.currentUser);
@@ -31,6 +33,15 @@ export default function DriverHomePage() {
         new Date(b.assignments[0]?.assignedAt ?? b.createdAt).getTime() -
         new Date(a.assignments[0]?.assignedAt ?? a.createdAt).getTime()
     );
+
+  const pendingAssignments = myOrders.flatMap((o) => {
+    const a = o.assignments.find(
+      (x) => x.vehicleId === myVehicleId && x.status === "PENDING_ACCEPT"
+    );
+    return a ? [{ order: o, assignment: a }] : [];
+  });
+
+  const activeOrders = myOrders.filter((o) => o.status !== "PENDING_ACCEPT");
 
   return (
     <div className="p-4 space-y-4">
@@ -78,15 +89,36 @@ export default function DriverHomePage() {
               )}
             </p>
             <p className="text-[11px] text-muted-foreground italic">
-              Số km sẽ được cập nhật tự động khi bạn xác nhận hoàn thành mỗi đơn.
+              Số km tự động cập nhật sau mỗi đơn — hoặc bấm bên dưới để cập nhật thủ công.
             </p>
+            <OdometerUpdateDialog vehicle={myVehicle} />
           </CardContent>
         </Card>
       )}
 
+      {pendingAssignments.length > 0 && (
+        <div>
+          <h2 className="text-lg font-semibold mb-2">
+            Đơn chờ xác nhận ({pendingAssignments.length})
+          </h2>
+          <div className="space-y-3">
+            {pendingAssignments.map(({ order, assignment }) => (
+              <PendingAssignmentCard key={assignment.id} order={order} assignment={assignment} />
+            ))}
+          </div>
+        </div>
+      )}
+
+      {activeOrders.length > 0 && (
+        <div className="flex items-start gap-2 rounded-md bg-muted/40 p-3 text-xs text-muted-foreground">
+          <Info className="h-4 w-4 shrink-0 mt-0.5" />
+          <span>Mỗi tài xế chỉ xử lý 1 đơn cùng lúc. Hoàn tất đơn hiện tại trước khi nhận thêm.</span>
+        </div>
+      )}
+
       <div>
-        <h2 className="text-lg font-semibold mb-2">Đơn cần giao ({myOrders.length})</h2>
-        {myOrders.length === 0 && (
+        <h2 className="text-lg font-semibold mb-2">Đơn đang giao ({activeOrders.length})</h2>
+        {activeOrders.length === 0 && pendingAssignments.length === 0 && (
           <Card>
             <CardContent className="p-6 text-center text-muted-foreground">
               <Package className="h-10 w-10 mx-auto mb-2 opacity-40" />
@@ -95,7 +127,7 @@ export default function DriverHomePage() {
             </CardContent>
           </Card>
         )}
-        {myOrders.map((o) => {
+        {activeOrders.map((o) => {
           const c = customers.find((cc) => cc.id === o.customerId);
           return (
             <Link key={o.id} href={`/driver/orders/${o.id}`} className="block mb-3">

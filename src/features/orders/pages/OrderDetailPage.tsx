@@ -12,7 +12,7 @@ import { format } from "date-fns";
 import { vi } from "date-fns/locale";
 import { formatKg } from "@/shared/utils";
 import Link from "next/link";
-import { canCancel, canEdit } from "@/features/orders/domain/orderStatus";
+import { canCancel, canEdit, ORDER_EVENT_LABEL } from "@/features/orders/domain/orderStatus";
 import { toast } from "sonner";
 import { useAuthStore } from "@/features/auth/stores/auth";
 import { useState } from "react";
@@ -204,7 +204,9 @@ export default function OrderDetailPage() {
                   {order.events.map((e) => (
                     <li key={e.id} className="ml-4">
                       <span className="absolute -left-[7px] mt-1 h-3 w-3 rounded-full bg-primary" />
-                      <p className="text-sm font-medium">{e.type}</p>
+                      <p className="text-sm font-medium">
+                        {ORDER_EVENT_LABEL[e.type] ?? e.type}
+                      </p>
                       <p className="text-xs text-muted-foreground">
                         {format(new Date(e.at), "dd/MM/yyyy HH:mm:ss", { locale: vi })} • {e.actorId}
                       </p>

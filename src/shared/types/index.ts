@@ -131,6 +131,8 @@ export interface Vehicle {
 export type OrderStatus =
   | "NEW"
   | "PENDING_DISPATCH"
+  | "PENDING_SUPERVISOR_REVIEW"
+  | "PENDING_ACCEPT"
   | "DISPATCHED"
   | "PICKED_UP"
   | "IN_TRANSIT"
@@ -142,6 +144,15 @@ export type OrderStatus =
   | "CANCELLED"
   | "CANCELLED_AFTER_RETURN";
 
+export interface SupervisorReview {
+  requestedAt: string;
+  requestedBy: string;
+  reviewedAt?: string;
+  reviewedBy?: string;
+  decision?: "APPROVED" | "REJECTED";
+  rejectReason?: string;
+}
+
 export interface DispatchAssignment {
   id: string;
   orderId: string;
@@ -150,7 +161,17 @@ export interface DispatchAssignment {
   partLabel?: string;
   assignedAt: string;
   assignedBy: string;
-  status: "ASSIGNED" | "PICKED_UP" | "IN_TRANSIT" | "DELIVERED" | "FAILED";
+  status:
+    | "PENDING_ACCEPT"
+    | "ASSIGNED"
+    | "PICKED_UP"
+    | "IN_TRANSIT"
+    | "DELIVERED"
+    | "FAILED"
+    | "REJECTED";
+  acceptedAt?: string;
+  rejectedAt?: string;
+  rejectReason?: string;
 }
 
 export interface OrderEvent {
@@ -201,6 +222,10 @@ export interface Order {
   failureNotes?: string;
   /** Lịch sử override hạn mức (lúc tạo và/hoặc lúc điều độ tiếp nhận). */
   quotaOverrides?: QuotaOverrideRecord[];
+  /** NCC đã chọn ở step 1 (sống xuyên suốt limbo trước khi có assignment). */
+  carrierId?: string;
+  /** Trạng thái duyệt giám sát khu vực (chỉ tồn tại khi NCC là BACKUP). */
+  supervisorReview?: SupervisorReview;
 }
 
 // ----- Return -----
@@ -239,6 +264,7 @@ export type NotificationType =
   | "ORDER_DISPATCHED"
   | "ORDER_DELIVERED"
   | "ORDER_FAILED"
+  | "ASSIGNMENT_REJECTED"
   | "QUOTA_WARNING"
   | "EMERGENCY_SOS"
   | "ETA_UPDATE"
@@ -275,6 +301,7 @@ export interface SosAlert {
   location: LatLng;
   orderIds: string[];
   message?: string;
+  photos?: string[];
   resolved: boolean;
   createdAt: string;
   resolvedAt?: string;

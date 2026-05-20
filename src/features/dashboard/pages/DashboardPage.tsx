@@ -16,7 +16,12 @@ export default function DashboardPage() {
   const vehicles = useDataStore((s) => s.vehicles);
   const customers = useDataStore((s) => s.customers);
 
-  const newCount = orders.filter((o) => o.status === "NEW" || o.status === "PENDING_DISPATCH").length;
+  const newCount = orders.filter(
+    (o) =>
+      o.status === "NEW" ||
+      o.status === "PENDING_DISPATCH" ||
+      o.status === "PENDING_SUPERVISOR_REVIEW",
+  ).length;
   const inTransit = orders.filter((o) => ["DISPATCHED", "PICKED_UP", "IN_TRANSIT"].includes(o.status)).length;
   const delivered = orders.filter((o) => o.status === "DELIVERED").length;
   const failed = orders.filter((o) => o.status === "DELIVERY_FAILED" || o.status === "RETURN_PROCESSING").length;

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
-import { Sparkles, Truck, X, MapPin, Package, ArrowRight } from "lucide-react";
+import { Building2, Sparkles, Truck, X, MapPin, Package, ArrowRight } from "lucide-react";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
 import { suggestVehicles } from "@/features/dispatch/domain/dispatchHeuristic";
@@ -11,8 +11,12 @@ import type { Order, Vehicle } from "@/shared/types";
 
 interface Props {
   order: Order | null;
+  /** Lọc xe theo NCC đã chọn ở step 1. Nếu không truyền sẽ list toàn bộ. */
+  carrierId?: string | null;
   onClose: () => void;
   onPickVehicle: (vehicle: Vehicle) => void;
+  /** Cho phép quay lại step chọn NCC. */
+  onBack?: () => void;
 }
 
 /**
@@ -21,10 +25,21 @@ interface Props {
  * - Lists all remaining available vehicles compactly
  * - Tap vehicle → calls onPickVehicle (parent opens AcceptDispatchDialog)
  */
-export function MobileAssignSheet({ order, onClose, onPickVehicle }: Props) {
-  const vehicles = useDataStore((s) => s.vehicles);
+export function MobileAssignSheet({ order, carrierId, onClose, onPickVehicle, onBack }: Props) {
+  const allVehicles = useDataStore((s) => s.vehicles);
+  const carriers = useDataStore((s) => s.carriers);
   const customers = useDataStore((s) => s.customers);
   const open = !!order;
+
+  const carrier = useMemo(
+    () => (carrierId ? carriers.find((c) => c.id === carrierId) ?? null : null),
+    [carriers, carrierId],
+  );
+
+  const vehicles = useMemo(
+    () => (carrierId ? allVehicles.filter((v) => v.carrierId === carrierId) : allVehicles),
+    [allVehicles, carrierId],
+  );
 
   const suggestions = useMemo(
     () => (order ? suggestVehicles({ order, vehicles }) : []),
@@ -112,7 +127,9 @@ export function MobileAssignSheet({ order, onClose, onPickVehicle }: Props) {
         {/* Header */}
         <div className="flex items-start gap-2 px-4 pb-3 border-b shrink-0 md:px-6 md:py-4">
           <div className="flex-1 min-w-0">
-            <p className="text-xs text-muted-foreground">Phân xe cho đơn</p>
+            <p className="text-xs text-muted-foreground">
+              {carrier ? "Bước 2 / 2 • Phân xe cho đơn" : "Phân xe cho đơn"}
+            </p>
             <p className="font-mono font-semibold text-primary">{order?.code}</p>
             {customer && (
               <p className="text-sm font-medium truncate">{customer.name}</p>
@@ -127,6 +144,27 @@ export function MobileAssignSheet({ order, onClose, onPickVehicle }: Props) {
                   <MapPin className="h-3 w-3 shrink-0" />
                   <span className="truncate">{order.dropoff.address}</span>
                 </span>
+              </div>
+            )}
+            {carrier && (
+              <div className="mt-2 flex items-center gap-2">
+                <Badge
+                  variant={carrier.type === "INTERNAL" ? "default" : "warning"}
+                  className="text-[10px] inline-flex items-center gap-1"
+                >
+                  <Building2 className="h-3 w-3" /> NCC: {carrier.name}
+                </Badge>
+                {onBack && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="h-6 px-2 text-[11px]"
+                    onClick={onBack}
+                  >
+                    Đổi NCC
+                  </Button>
+                )}
               </div>
             )}
           </div>

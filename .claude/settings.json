@@ -10,7 +10,14 @@
       "Bash(npm ping *)",
       "Bash(curl -sS -o /dev/null -w \"%{http_code}\\\\n\" https://registry.npmjs.org/)",
       "Bash(grep -E \"\\\\.\\(tsx|ts\\)$\")",
-      "Bash(curl -sI http://localhost:3000/logo.webp)"
+      "Bash(curl -sI http://localhost:3000/logo.webp)",
+      "Bash(curl -s -o /dev/null -w \"favicon=%{http_code}\\\\n\" http://localhost:3001/favicon.ico)",
+      "Bash(curl -s -o /dev/null -w \"dispatch=%{http_code}\\\\n\" http://localhost:3001/dispatch -H \"Cookie: dispatch_role=DISPATCHER\")",
+      "Bash(kill 66437)",
+      "Bash(curl -s -o /dev/null -w \"favicon=%{http_code}\\\\n\" http://localhost:3000/favicon.ico)",
+      "Bash(curl -s -o /dev/null -w \"dispatch=%{http_code}\\\\n\" http://localhost:3000/dispatch -H \"Cookie: dispatch_role=DISPATCHER\")",
+      "Bash(curl -s -o /dev/null -w \"approvals=%{http_code}\\\\n\" http://localhost:3000/approvals -H \"Cookie: dispatch_role=OPS_MANAGER\")",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/dispatch)"
     ],
     "additionalDirectories": [
       "/Users/ngocnhat/.claude/skills/nextjs-feature-first-refactor",
