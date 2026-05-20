@@ -315,7 +315,7 @@ export function buildSeed() {
 
     if (isActive || isPending || isTerminalWithAssignment) {
       // For active/pending we must respect the 1-active + 1-pending per vehicle rule.
-      let v = isTerminalWithAssignment
+      const v = isTerminalWithAssignment
         ? vehicles.find((vv) => vv.capacityKg >= weight) ?? vehicles[0]
         : vehicles.find(
             (vv) =>
