@@ -8,6 +8,7 @@ export const ORDER_STATUS_LABEL: Record<OrderStatus, string> = {
   DISPATCHED: "Đã phân xe",
   PICKED_UP: "Đã lấy hàng",
   IN_TRANSIT: "Đang giao",
+  PENDING_PAYMENT: "Chờ thanh toán",
   DELIVERED: "Đã giao",
   DELIVERY_FAILED: "Giao thất bại",
   RETURN_PROCESSING: "Đang xử lý trả",
@@ -28,6 +29,7 @@ export const ORDER_STATUS_VARIANT: Record<
   DISPATCHED: "default",
   PICKED_UP: "default",
   IN_TRANSIT: "default",
+  PENDING_PAYMENT: "warning",
   DELIVERED: "success",
   DELIVERY_FAILED: "destructive",
   RETURN_PROCESSING: "warning",
@@ -54,7 +56,7 @@ export function canEdit(s: OrderStatus): boolean {
 }
 
 export function canCancel(s: OrderStatus): boolean {
-  return !["DELIVERED", "RETURNED", "CANCELLED", "CANCELLED_AFTER_RETURN"].includes(s);
+  return !["PENDING_PAYMENT", "DELIVERED", "RETURNED", "CANCELLED", "CANCELLED_AFTER_RETURN"].includes(s);
 }
 
 /** Nhãn tiếng Việt cho các loại event ghi vào `order.events[]`. Không có → render raw type. */
@@ -77,6 +79,9 @@ export const ORDER_EVENT_LABEL: Record<string, string> = {
   UNASSIGNED: "Huỷ phân xe",
   PICKED_UP: "Đã lấy hàng",
   IN_TRANSIT: "Bắt đầu giao",
+  DELIVERED_PENDING_PAYMENT: "Đã giao — chờ thanh toán",
+  COD_TRANSFER_SUBMITTED: "Khách báo đã chuyển khoản",
+  COD_PAID: "Đã nhận thanh toán (CK)",
   DELIVERED: "Đã giao",
   DELIVERY_FAILED: "Giao thất bại",
   CANCELLED: "Đã huỷ",

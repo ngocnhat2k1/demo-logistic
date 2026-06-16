@@ -6,11 +6,11 @@ import { Button } from "@/shared/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { useDataStore } from "@/shared/stores/data";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, MapPin, Package, User as UserIcon, X, Scissors, Pencil, AlertTriangle, Printer, Warehouse as WarehouseIcon } from "lucide-react";
+import { ArrowLeft, MapPin, Package, User as UserIcon, X, Scissors, Pencil, AlertTriangle, Printer, Warehouse as WarehouseIcon, Wallet, CheckCircle2 } from "lucide-react";
 import { StatusBadge } from "@/features/orders/components/StatusBadge";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
-import { formatKg } from "@/shared/utils";
+import { formatKg, formatVnd } from "@/shared/utils";
 import Link from "next/link";
 import { canCancel, canEdit, ORDER_EVENT_LABEL } from "@/features/orders/domain/orderStatus";
 import { toast } from "sonner";
@@ -31,6 +31,7 @@ export default function OrderDetailPage() {
   const warehouses = useDataStore((s) => s.warehouses);
   const cancelOrder = useDataStore((s) => s.cancelOrder);
   const splitOrder = useDataStore((s) => s.splitOrder);
+  const confirmCodPayment = useDataStore((s) => s.confirmCodPayment);
   const user = useAuthStore((s) => s.currentUser);
 
   const [splitOpen, setSplitOpen] = useState(false);
@@ -138,6 +139,12 @@ export default function OrderDetailPage() {
               <Field icon={<MapPin className="h-4 w-4" />} label="Điểm giao">{order.dropoff.address}</Field>
               <Field label="Yêu cầu giao">{format(new Date(order.requestedDeliveryAt), "dd/MM/yyyy HH:mm", { locale: vi })}</Field>
               <Field label="Tạo lúc">{format(new Date(order.createdAt), "dd/MM/yyyy HH:mm", { locale: vi })}</Field>
+              {(order.codAmount ?? 0) > 0 && (
+                <Field icon={<Wallet className="h-4 w-4" />} label="Tiền thu hộ (COD)">
+                  <span className="font-semibold">{formatVnd(order.codAmount ?? 0)}</span>
+                  <span className="ml-2 text-xs text-muted-foreground">{CodStatusText(order.codStatus)}</span>
+                </Field>
+              )}
               {order.notes && <Field label="Ghi chú" full>{order.notes}</Field>}
               {order.extraCostNote && (
                 <Field label="Chi phí phát sinh" full>
@@ -145,6 +152,30 @@ export default function OrderDetailPage() {
                 </Field>
               )}
             </div>
+            {order.status === "PENDING_PAYMENT" && (
+              <div className="mt-4 flex flex-col gap-2 rounded-md border border-warning bg-warning/5 p-3 text-sm sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2 text-warning">
+                  <Wallet className="h-4 w-4" />
+                  <span>
+                    Đang chờ thu hộ {formatVnd(order.codAmount ?? 0)} qua chuyển khoản
+                    {order.codStatus === "VERIFYING" && " — đang đối soát"}
+                  </span>
+                </div>
+                {(user?.role === "ADMIN" || user?.role === "OPS_MANAGER" || user?.role === "DISPATCHER") && (
+                  <Button
+                    size="sm"
+                    variant="success"
+                    onClick={() => {
+                      if (!user) return;
+                      confirmCodPayment(order.id, user.id);
+                      toast.success(`Đã xác nhận thu hộ đơn ${order.code}`);
+                    }}
+                  >
+                    <CheckCircle2 className="h-4 w-4" /> Xác nhận đã nhận tiền
+                  </Button>
+                )}
+              </div>
+            )}
             {order.quotaOverrides && order.quotaOverrides.length > 0 && (
               <div className="mt-4 rounded-md border border-warning bg-warning/5 p-3 text-xs text-warning space-y-1">
                 <p className="flex items-center gap-1.5 font-medium">
@@ -299,6 +330,13 @@ export default function OrderDetailPage() {
       </Dialog>
     </>
   );
+}
+
+function CodStatusText(s: import("@/shared/types").Order["codStatus"]): string {
+  if (s === "PAID") return "(đã thu)";
+  if (s === "VERIFYING") return "(đang đối soát)";
+  if (s === "PENDING") return "(chờ thanh toán)";
+  return "(chưa thu)";
 }
 
 function Field({ label, children, icon, full }: { label: string; children: React.ReactNode; icon?: React.ReactNode; full?: boolean }) {

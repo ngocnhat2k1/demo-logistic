@@ -29,7 +29,7 @@ import type {
   StockMovement,
 } from "@/shared/types";
 import { buildSeed } from "@/shared/mock/seed";
-import { uid } from "@/shared/utils";
+import { uid, formatVnd } from "@/shared/utils";
 import { buildPolyline } from "@/shared/mock/geo";
 import { suggestVehicles } from "@/features/dispatch/domain/dispatchHeuristic";
 import { AUTO_DISPATCH_MIN_SCORE } from "@/features/dispatch/constants";
@@ -169,6 +169,18 @@ interface DataState {
     actorId: string,
     odometerKm?: number
   ) => void;
+  /** Đơn COD: tài xế xác nhận giao (ký + odometer) → PENDING_PAYMENT. Chưa thả xe/trừ quota. */
+  confirmDeliveryPendingPayment: (
+    orderId: string,
+    signature: string | undefined,
+    photos: string[],
+    actorId: string,
+    odometerKm?: number
+  ) => void;
+  /** Khách báo đã chuyển khoản → codStatus VERIFYING (chờ hệ thống tự đối soát). */
+  submitCodTransfer: (orderId: string, actorId: string) => void;
+  /** Xác nhận đã nhận tiền (auto mock hoặc thủ công) → codStatus PAID + chốt DELIVERED. */
+  confirmCodPayment: (orderId: string, actorId: string) => void;
 
   // carriers (nhà xe)
   addCarrier: (input: { code: string; name: string; type: Carrier["type"]; contactPhone: string }) => Carrier;
@@ -1785,6 +1797,112 @@ export const useDataStore = create<DataState>()(
         });
       },
 
+      confirmDeliveryPendingPayment: (orderId, signature, photos, actorId, odometerKm) => {
+        const order = get().orders.find((o) => o.id === orderId);
+        if (!order) return;
+        const now = nowIso();
+        // Ghi odometer ngay tại thời điểm giao; xe vẫn BUSY tới khi thanh toán xong.
+        const a = order.assignments[0];
+        if (a && typeof odometerKm === "number" && Number.isFinite(odometerKm) && odometerKm > 0) {
+          get().recordOdometer(a.vehicleId, odometerKm, actorId, {
+            orderId: order.id,
+            orderCode: order.code,
+            note: "Ghi nhận khi giao hàng (chờ thanh toán)",
+          });
+        }
+        set({
+          orders: get().orders.map((o) =>
+            o.id === orderId
+              ? {
+                  ...o,
+                  status: "PENDING_PAYMENT",
+                  codStatus: "PENDING",
+                  updatedAt: now,
+                  signature,
+                  deliveryEvidence: photos,
+                  events: [
+                    ...o.events,
+                    { id: uid("evt"), type: "DELIVERED_PENDING_PAYMENT", payload: { codAmount: o.codAmount }, actorId, at: now },
+                  ],
+                }
+              : o
+          ),
+        });
+      },
+
+      submitCodTransfer: (orderId, actorId) => {
+        const order = get().orders.find((o) => o.id === orderId);
+        if (!order || order.status !== "PENDING_PAYMENT" || order.codStatus !== "PENDING") return;
+        const now = nowIso();
+        set({
+          orders: get().orders.map((o) =>
+            o.id === orderId
+              ? {
+                  ...o,
+                  codStatus: "VERIFYING",
+                  codTransferAt: now,
+                  updatedAt: now,
+                  events: [
+                    ...o.events,
+                    { id: uid("evt"), type: "COD_TRANSFER_SUBMITTED", payload: { codAmount: o.codAmount }, actorId, at: now },
+                  ],
+                }
+              : o
+          ),
+        });
+      },
+
+      confirmCodPayment: (orderId, actorId) => {
+        const order = get().orders.find((o) => o.id === orderId);
+        if (!order || order.status !== "PENDING_PAYMENT") return;
+        const now = nowIso();
+        // Chốt giao: trừ quota + thả xe (logic giống đoạn cuối completeDelivery).
+        get().consumeReservedQuota(order.customerId, order.weightKg, order.id, actorId);
+        const a = order.assignments[0];
+        if (a) {
+          set({
+            vehicles: get().vehicles.map((v) =>
+              v.id === a.vehicleId
+                ? {
+                    ...v,
+                    status: "AVAILABLE",
+                    activeAssignmentId: undefined,
+                    routePolyline: undefined,
+                    routeProgress: undefined,
+                    routeHistoryCount: (v.routeHistoryCount ?? 0) + 1,
+                  }
+                : v
+            ),
+          });
+        }
+        set({
+          orders: get().orders.map((o) =>
+            o.id === orderId
+              ? {
+                  ...o,
+                  status: "DELIVERED",
+                  codStatus: "PAID",
+                  codPaidAt: now,
+                  deliveredAt: now,
+                  updatedAt: now,
+                  events: [
+                    ...o.events,
+                    { id: uid("evt"), type: "COD_PAID", payload: { codAmount: o.codAmount }, actorId, at: now },
+                    { id: uid("evt"), type: "DELIVERED", payload: {}, actorId, at: now },
+                  ],
+                }
+              : o
+          ),
+        });
+        get().pushNotification({
+          type: "ORDER_DELIVERED",
+          severity: "success",
+          title: "Đã nhận thanh toán — đơn hoàn tất",
+          message: `${order.code} • thu hộ ${formatVnd(order.codAmount ?? 0)}`,
+          targetRoles: ["DISPATCHER", "SALES", "OPS_MANAGER"],
+        });
+      },
+
       setVehicleStatus: (vehicleId, status) => {
         set({
           vehicles: get().vehicles.map((v) => (v.id === vehicleId ? { ...v, status } : v)),
@@ -2263,7 +2381,9 @@ export const useDataStore = create<DataState>()(
       },
     }),
     {
-      name: "data",
+      // Bump key khi seed đổi schema (thêm kho, COD…) để client cũ tự nạp lại seed mới.
+      // Chỉ reset dữ liệu nghiệp vụ — KHÔNG đụng store "auth" nên không bị đăng xuất.
+      name: "data-v2",
       storage: createJSONStorage(() => idbStorage),
       onRehydrateStorage: () => (state) => {
         state?.setHydrated();

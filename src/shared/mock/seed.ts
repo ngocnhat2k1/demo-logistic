@@ -367,7 +367,8 @@ export function buildSeed() {
     ...Array(5).fill("DISPATCHED"),
     ...Array(4).fill("PICKED_UP"),
     ...Array(6).fill("IN_TRANSIT"),
-    ...Array(15).fill("DELIVERED"),
+    ...Array(2).fill("PENDING_PAYMENT"),
+    ...Array(13).fill("DELIVERED"),
     ...Array(3).fill("DELIVERY_FAILED"),
     ...Array(2).fill("RETURN_PROCESSING"),
     ...Array(1).fill("CANCELLED"),
@@ -375,6 +376,8 @@ export function buildSeed() {
   // Track per-vehicle inflight allocation to honour the "1 active + 1 pending" rule.
   const vehicleActive: Record<string, number> = {};
   const vehiclePending: Record<string, number> = {};
+  // Mức tiền thu hộ (COD) mẫu — VNĐ.
+  const COD_AMOUNTS = [350_000, 750_000, 1_200_000, 2_500_000, 4_800_000];
 
   const placeKeys = Object.keys(PLACES) as PlaceKey[];
 
@@ -392,6 +395,10 @@ export function buildSeed() {
     const warehouseId =
       whRoll < 0.6 ? warehouseIds[0] : whRoll < 0.8 ? warehouseIds[1] : warehouseIds[2];
 
+    // Đơn PENDING_PAYMENT luôn có tiền thu hộ; các đơn khác ~45% có thu hộ.
+    const codAmount =
+      status === "PENDING_PAYMENT" || rng() < 0.45 ? pick(rng, COD_AMOUNTS) : undefined;
+
     const order: Order = {
       id: `order_${i + 1}`,
       code: `DH-${String(i + 1).padStart(4, "0")}`,
@@ -403,6 +410,7 @@ export function buildSeed() {
       dropoff: placeToLocation(dropoffKey, "Người nhận", makePhone(rng)),
       weightKg: weight,
       declaredWeightKg: weight,
+      codAmount,
       items: makeOrderItems(rng, products),
       description: pick(rng, PRODUCT_DESC),
       requestedDeliveryAt: requested,
@@ -422,24 +430,28 @@ export function buildSeed() {
     };
 
     const isActive = status === "DISPATCHED" || status === "PICKED_UP" || status === "IN_TRANSIT";
+    // PENDING_PAYMENT: đã giao tới nơi, chờ thu hộ — xe vẫn BUSY (chưa được thả).
+    const isPendingPayment = status === "PENDING_PAYMENT";
+    const occupiesActive = isActive || isPendingPayment;
     const isPending = status === "PENDING_ACCEPT";
     const isTerminalWithAssignment =
       status === "DELIVERED" || status === "DELIVERY_FAILED" || status === "RETURN_PROCESSING";
 
-    if (isActive || isPending || isTerminalWithAssignment) {
+    if (occupiesActive || isPending || isTerminalWithAssignment) {
       // For active/pending we must respect the 1-active + 1-pending per vehicle rule.
       const v = isTerminalWithAssignment
         ? vehicles.find((vv) => vv.capacityKg >= weight) ?? vehicles[0]
         : vehicles.find(
             (vv) =>
               vv.capacityKg >= weight &&
-              (vehicleActive[vv.id] ?? 0) < (isActive ? 1 : 2) &&
+              (vehicleActive[vv.id] ?? 0) < (occupiesActive ? 1 : 2) &&
               (vehiclePending[vv.id] ?? 0) < (isPending ? 1 : 2) &&
               (vehicleActive[vv.id] ?? 0) + (vehiclePending[vv.id] ?? 0) < 2
           );
       if (!v) {
         // No vehicle has room — downgrade to PENDING_DISPATCH (unassigned).
         order.status = "PENDING_DISPATCH";
+        order.codStatus = undefined;
         orders.push(order);
         continue;
       }
@@ -458,23 +470,31 @@ export function buildSeed() {
               ? "ASSIGNED"
               : status === "PICKED_UP"
                 ? "PICKED_UP"
-                : status === "IN_TRANSIT"
+                : status === "IN_TRANSIT" || status === "PENDING_PAYMENT"
                   ? "IN_TRANSIT"
                   : status === "DELIVERED"
                     ? "DELIVERED"
                     : "FAILED",
       };
-      if (status === "DISPATCHED" || status === "PICKED_UP" || status === "IN_TRANSIT") {
+      if (
+        status === "DISPATCHED" ||
+        status === "PICKED_UP" ||
+        status === "IN_TRANSIT" ||
+        status === "PENDING_PAYMENT"
+      ) {
         assignment.acceptedAt = createdAt;
       }
       order.assignments = [assignment];
 
-      if (isActive) {
+      if (occupiesActive) {
         v.status = "BUSY";
         v.activeAssignmentId = assignment.id;
         v.routePolyline = buildPolyline(order.pickup, order.dropoff, 14);
-        v.routeProgress =
-          status === "DISPATCHED" ? 0 : pick(rng, [0.15, 0.3, 0.45, 0.6, 0.75]);
+        v.routeProgress = isPendingPayment
+          ? 1 // đã tới điểm giao
+          : status === "DISPATCHED"
+            ? 0
+            : pick(rng, [0.15, 0.3, 0.45, 0.6, 0.75]);
         vehicleActive[v.id] = (vehicleActive[v.id] ?? 0) + 1;
       } else if (isPending) {
         // PENDING_ACCEPT marks the vehicle BUSY but no active route yet.
@@ -482,9 +502,18 @@ export function buildSeed() {
         vehiclePending[v.id] = (vehiclePending[v.id] ?? 0) + 1;
       }
 
+      if (status === "PENDING_PAYMENT") {
+        order.codStatus = "PENDING";
+        order.pickedUpAt = new Date(new Date(createdAt).getTime() + 1 * 3600000).toISOString();
+      }
+
       if (status === "DELIVERED") {
         order.deliveredAt = new Date(new Date(createdAt).getTime() + 6 * 3600000).toISOString();
         order.pickedUpAt = new Date(new Date(createdAt).getTime() + 1 * 3600000).toISOString();
+        if (order.codAmount) {
+          order.codStatus = "PAID";
+          order.codPaidAt = order.deliveredAt;
+        }
       }
     }
 
@@ -498,6 +527,7 @@ export function buildSeed() {
     "DISPATCHED",
     "PICKED_UP",
     "IN_TRANSIT",
+    "PENDING_PAYMENT",
   ];
   for (const o of orders) {
     if (!inflightStatuses.includes(o.status)) continue;

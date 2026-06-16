@@ -13,20 +13,6 @@ const MARKER_DATA_URL =
   <circle cx="12.5" cy="12.5" r="5" fill="white"/>
 </svg>`);
 
-const VEHICLE_BUSY_URL =
-  "data:image/svg+xml;base64," +
-  btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <circle cx="16" cy="16" r="14" fill="#2563eb" stroke="white" stroke-width="2"/>
-  <path d="M8 18h2l1.5-4h9l1.5 4h2v3h-2.5a2 2 0 11-4 0H13a2 2 0 11-4 0H8v-3z" fill="white"/>
-</svg>`);
-
-const VEHICLE_IDLE_URL =
-  "data:image/svg+xml;base64," +
-  btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
-  <circle cx="16" cy="16" r="14" fill="#16a34a" stroke="white" stroke-width="2"/>
-  <path d="M8 18h2l1.5-4h9l1.5 4h2v3h-2.5a2 2 0 11-4 0H13a2 2 0 11-4 0H8v-3z" fill="white"/>
-</svg>`);
-
 const PIN_RED =
   "data:image/svg+xml;base64," +
   btoa(`<svg xmlns="http://www.w3.org/2000/svg" width="25" height="41" viewBox="0 0 25 41">
@@ -43,23 +29,71 @@ const defaultIcon = L.icon({
 
 L.Marker.prototype.options.icon = defaultIcon;
 
-const VEHICLE_BUSY = L.icon({ iconUrl: VEHICLE_BUSY_URL, iconSize: [32, 32], iconAnchor: [16, 16], popupAnchor: [0, -12] });
-const VEHICLE_IDLE = L.icon({ iconUrl: VEHICLE_IDLE_URL, iconSize: [32, 32], iconAnchor: [16, 16], popupAnchor: [0, -12] });
 const PIN_DROP = L.icon({ iconUrl: PIN_RED, iconSize: [25, 41], iconAnchor: [12, 41], popupAnchor: [0, -34] });
+
+const TRUCK_PATH =
+  'M8 18h2l1.5-4h9l1.5 4h2v3h-2.5a2 2 0 11-4 0H13a2 2 0 11-4 0H8v-3z';
+
+/** Màu marker theo "kind" của xe. */
+function vehicleColor(kind?: string): string {
+  if (kind === "vehicle-idle") return "#16a34a"; // xanh lá — sẵn sàng
+  if (kind === "vehicle-other") return "#9ca3af"; // xám — bảo trì/hỏng/nghỉ
+  return "#2563eb"; // xanh dương — đang chạy
+}
+
+/** Marker xe dạng divIcon: cho phép vòng highlight khi chọn + badge %. */
+function vehicleDivIcon(mk: MapMarker): L.DivIcon {
+  const color = vehicleColor(mk.kind);
+  const selected = !!mk.selected;
+  const size = selected ? 38 : 30;
+  const ring = selected
+    ? "box-shadow:0 0 0 5px rgba(37,99,235,.30),0 1px 3px rgba(0,0,0,.4);"
+    : "box-shadow:0 1px 3px rgba(0,0,0,.4);";
+  const badge = mk.label
+    ? `<span style="position:absolute;top:-7px;right:-9px;background:#111827;color:#fff;font-size:9px;font-weight:700;line-height:1;padding:2px 4px;border-radius:9999px;border:1.5px solid #fff;">${mk.label}</span>`
+    : "";
+  const iconPx = Math.round(size * 0.62);
+  return L.divIcon({
+    className: "",
+    html: `<div style="position:relative;width:${size}px;height:${size}px;">
+      <div style="width:${size}px;height:${size}px;border-radius:9999px;background:${color};border:2px solid #fff;${ring}display:flex;align-items:center;justify-content:center;">
+        <svg width="${iconPx}" height="${iconPx}" viewBox="0 0 32 32"><path d="${TRUCK_PATH}" fill="white"/></svg>
+      </div>${badge}
+    </div>`,
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+  });
+}
+
+/** Bong bóng cụm marker (gom cụm thủ công, không cần thư viện). */
+function clusterDivIcon(count: number): L.DivIcon {
+  const s = count >= 10 ? 46 : 40;
+  return L.divIcon({
+    className: "",
+    html: `<div style="width:${s}px;height:${s}px;border-radius:9999px;background:#1d4ed8;color:#fff;border:3px solid #fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:13px;box-shadow:0 1px 5px rgba(0,0,0,.45);">${count}</div>`,
+    iconSize: [s, s],
+    iconAnchor: [s / 2, s / 2],
+  });
+}
 
 export interface MapMarker {
   id: string;
   lat: number;
   lng: number;
+  /** Badge nhỏ trên marker (vd "48%"). */
   label?: string;
   popup?: string;
-  kind?: "vehicle-busy" | "vehicle-idle" | "pickup" | "dropoff";
+  kind?: "vehicle-busy" | "vehicle-idle" | "vehicle-other" | "pickup" | "dropoff";
+  selected?: boolean;
 }
 
 export interface MapPolyline {
   id: string;
   points: LatLng[];
   color?: string;
+  weight?: number;
+  opacity?: number;
+  dashed?: boolean;
 }
 
 interface Props {
@@ -68,6 +102,14 @@ interface Props {
   markers?: MapMarker[];
   polylines?: MapPolyline[];
   className?: string;
+  /** Bật gom cụm marker khi chồng lấn. */
+  cluster?: boolean;
+  /** Click vào marker xe → trả về id (thay cho popup). */
+  onMarkerClick?: (id: string) => void;
+  /** Marker đang chọn → bay tới (flyTo). */
+  selectedId?: string | null;
+  /** Khi giá trị này đổi → fit khung nhìn vừa khít tất cả marker. */
+  fitKey?: string | number;
 }
 
 export default function MapCanvas({
@@ -76,14 +118,22 @@ export default function MapCanvas({
   markers = [],
   polylines = [],
   className,
+  cluster = false,
+  onMarkerClick,
+  selectedId = null,
+  fitKey,
 }: Props) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const mapRef = useRef<L.Map | null>(null);
-  const layersRef = useRef<{ markers: L.Marker[]; polylines: L.Polyline[] }>({ markers: [], polylines: [] });
+  const layersRef = useRef<{ markers: L.Layer[]; polylines: L.Polyline[] }>({ markers: [], polylines: [] });
+  const renderRef = useRef<() => void>(() => {});
+  const didFitRef = useRef(false);
+  const fitKeyRef = useRef(fitKey);
 
   const memoMarkers = useMemo(() => markers, [markers]);
   const memoPolylines = useMemo(() => polylines, [polylines]);
 
+  // Init map once
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return;
     const map = L.map(containerRef.current).setView([center.lat, center.lng], zoom);
@@ -92,32 +142,76 @@ export default function MapCanvas({
       maxZoom: 18,
     }).addTo(map);
     mapRef.current = map;
+    // Gom cụm lại mỗi khi đổi mức zoom.
+    map.on("zoomend", () => renderRef.current());
     return () => {
       map.remove();
       mapRef.current = null;
+      didFitRef.current = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Update markers
-  useEffect(() => {
+  // Render markers (với gom cụm tuỳ chọn)
+  renderRef.current = () => {
     const map = mapRef.current;
     if (!map) return;
     layersRef.current.markers.forEach((m) => map.removeLayer(m));
     layersRef.current.markers = [];
-    memoMarkers.forEach((m) => {
-      let icon = defaultIcon;
-      if (m.kind === "vehicle-busy") icon = VEHICLE_BUSY;
-      else if (m.kind === "vehicle-idle") icon = VEHICLE_IDLE;
-      else if (m.kind === "dropoff") icon = PIN_DROP;
-      const marker = L.marker([m.lat, m.lng], { icon });
-      if (m.popup) marker.bindPopup(m.popup);
-      marker.addTo(map);
-      layersRef.current.markers.push(marker);
-    });
-  }, [memoMarkers]);
 
-  // Update polylines
+    const addSingle = (mk: MapMarker) => {
+      const isVehicle = mk.kind?.startsWith("vehicle");
+      let layer: L.Marker;
+      if (isVehicle) {
+        layer = L.marker([mk.lat, mk.lng], { icon: vehicleDivIcon(mk), zIndexOffset: mk.selected ? 1000 : 0 });
+        if (onMarkerClick) layer.on("click", () => onMarkerClick(mk.id));
+        else if (mk.popup) layer.bindPopup(mk.popup);
+      } else {
+        const icon = mk.kind === "dropoff" ? PIN_DROP : defaultIcon;
+        layer = L.marker([mk.lat, mk.lng], { icon });
+        if (mk.popup) layer.bindPopup(mk.popup);
+      }
+      layer.addTo(map);
+      layersRef.current.markers.push(layer);
+    };
+
+    if (!cluster) {
+      memoMarkers.forEach(addSingle);
+      return;
+    }
+
+    // Gom cụm theo lưới pixel ở mức zoom hiện tại.
+    const z = map.getZoom();
+    const cell = 48;
+    const groups = new Map<string, MapMarker[]>();
+    memoMarkers.forEach((mk) => {
+      const pt = map.project([mk.lat, mk.lng] as L.LatLngExpression, z);
+      const key = `${Math.floor(pt.x / cell)}_${Math.floor(pt.y / cell)}`;
+      const arr = groups.get(key);
+      if (arr) arr.push(mk);
+      else groups.set(key, [mk]);
+    });
+
+    groups.forEach((items) => {
+      const hasSelected = items.some((i) => i.id === selectedId);
+      if (items.length === 1 || hasSelected) {
+        items.forEach(addSingle);
+        return;
+      }
+      const lat = items.reduce((s, i) => s + i.lat, 0) / items.length;
+      const lng = items.reduce((s, i) => s + i.lng, 0) / items.length;
+      const bubble = L.marker([lat, lng], { icon: clusterDivIcon(items.length) });
+      bubble.on("click", () => map.flyTo([lat, lng], Math.min(z + 2, 13)));
+      bubble.addTo(map);
+      layersRef.current.markers.push(bubble);
+    });
+  };
+
+  useEffect(() => {
+    renderRef.current();
+  }, [memoMarkers, cluster, selectedId, onMarkerClick]);
+
+  // Polylines
   useEffect(() => {
     const map = mapRef.current;
     if (!map) return;
@@ -126,12 +220,40 @@ export default function MapCanvas({
     memoPolylines.forEach((p) => {
       const line = L.polyline(
         p.points.map((pt) => [pt.lat, pt.lng] as [number, number]),
-        { color: p.color || "#2563eb", weight: 3, opacity: 0.7 }
+        {
+          color: p.color || "#2563eb",
+          weight: p.weight ?? 3,
+          opacity: p.opacity ?? 0.7,
+          dashArray: p.dashed ? "6 8" : undefined,
+        }
       );
       line.addTo(map);
       layersRef.current.polylines.push(line);
     });
   }, [memoPolylines]);
+
+  // Bay tới marker đang chọn
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !selectedId) return;
+    const mk = memoMarkers.find((m) => m.id === selectedId);
+    if (mk) map.flyTo([mk.lat, mk.lng], Math.max(map.getZoom(), 11), { duration: 0.6 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId]);
+
+  // Fit khung nhìn vừa khít tất cả marker — CHỈ lần đầu có marker hoặc khi fitKey đổi.
+  // (Không refit mỗi khi số marker thay đổi để khỏi giật khung nhìn khi đang xem.)
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || memoMarkers.length === 0) return;
+    const fitKeyChanged = fitKeyRef.current !== fitKey;
+    if (didFitRef.current && !fitKeyChanged) return;
+    fitKeyRef.current = fitKey;
+    didFitRef.current = true;
+    const bounds = L.latLngBounds(memoMarkers.map((m) => [m.lat, m.lng] as [number, number]));
+    map.fitBounds(bounds, { padding: [48, 48], maxZoom: 12 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fitKey, memoMarkers.length]);
 
   return <div ref={containerRef} className={className} style={{ minHeight: 200 }} />;
 }

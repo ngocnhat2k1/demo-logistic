@@ -5,6 +5,8 @@ import { useDataStore } from "@/shared/stores/data";
 import { interpolatePolyline } from "@/shared/utils";
 
 const TICK_MS = 3000;
+/** Trễ giả lập "đối soát" chuyển khoản trước khi tự xác nhận đã nhận tiền. */
+const COD_VERIFY_DELAY_MS = 4000;
 
 export function RealtimeProvider({ children }: { children: React.ReactNode }) {
   const ready = useDataStore((s) => s._hasHydrated);
@@ -28,6 +30,19 @@ export function RealtimeProvider({ children }: { children: React.ReactNode }) {
         }
         const next = interpolatePolyline(v.routePolyline, p);
         state.setVehicleLocation(v.id, next.lat, next.lng, p);
+      });
+
+      // Mock đối soát thanh toán: khách đã báo chuyển khoản (VERIFYING) đủ lâu → tự xác nhận đã nhận tiền.
+      const now = Date.now();
+      state.orders.forEach((o) => {
+        if (
+          o.status === "PENDING_PAYMENT" &&
+          o.codStatus === "VERIFYING" &&
+          o.codTransferAt &&
+          now - new Date(o.codTransferAt).getTime() >= COD_VERIFY_DELAY_MS
+        ) {
+          state.confirmCodPayment(o.id, "system");
+        }
       });
     }
 

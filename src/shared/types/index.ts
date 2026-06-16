@@ -204,6 +204,7 @@ export type OrderStatus =
   | "DISPATCHED"
   | "PICKED_UP"
   | "IN_TRANSIT"
+  | "PENDING_PAYMENT"
   | "DELIVERED"
   | "DELIVERY_FAILED"
   | "RETURN_PROCESSING"
@@ -296,6 +297,14 @@ export interface Order {
   signature?: string; // data URL
   failureReasonId?: string;
   failureNotes?: string;
+  /** Số tiền thu hộ qua chuyển khoản (VND). 0/undefined = không thu, giao xong DELIVERED luôn. */
+  codAmount?: number;
+  /** Trạng thái thu hộ. Chỉ tồn tại với đơn có codAmount > 0. */
+  codStatus?: "PENDING" | "VERIFYING" | "PAID";
+  /** Mốc khách bấm "đã chuyển khoản" — bắt đầu đối soát. */
+  codTransferAt?: string;
+  /** Mốc hệ thống xác nhận đã nhận tiền. */
+  codPaidAt?: string;
   /** Lịch sử override hạn mức (lúc tạo và/hoặc lúc điều độ tiếp nhận). */
   quotaOverrides?: QuotaOverrideRecord[];
   /** NCC đã chọn ở step 1 (sống xuyên suốt limbo trước khi có assignment). */

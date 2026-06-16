@@ -23,12 +23,14 @@ import {
 import { useDataStore } from "@/shared/stores/data";
 import { useUIStore } from "@/shared/stores/ui";
 import { PLACES } from "@/shared/mock/geo";
+import { formatVnd } from "@/shared/utils";
 
 interface ParsedRow {
   customerCode: string;
   pickup: string;
   dropoff: string;
   weightKg: number;
+  codAmount: number;
   description: string;
   ok: boolean;
   error?: string;
@@ -84,6 +86,7 @@ export function ImportOrderDialog({ open, onOpenChange }: Props) {
         const pickup = String(r.pickup || r.DiemLay || "Kho Tân Bình, HCM");
         const dropoff = String(r.dropoff || r.DiemGiao || "");
         const weightKg = Number(r.weightKg || r.KhoiLuong || 0);
+        const codAmount = Number(r.codAmount || r.TienThuHo || 0);
         const description = String(r.description || r.MoTa || "");
         const customer = customers.find((c) => c.code === code || c.name === code);
         const ok = !!customer && weightKg > 0 && !!dropoff;
@@ -92,6 +95,7 @@ export function ImportOrderDialog({ open, onOpenChange }: Props) {
           pickup,
           dropoff,
           weightKg,
+          codAmount: Number.isFinite(codAmount) && codAmount > 0 ? codAmount : 0,
           description,
           ok,
           error: !customer
@@ -118,6 +122,7 @@ export function ImportOrderDialog({ open, onOpenChange }: Props) {
       pickup: "Kho TT Tân Bình, HCM",
       dropoff: ["Bình Dương", "Đồng Nai", "Cần Thơ", "Vũng Tàu", "Long An"][i % 5],
       weightKg: [500, 800, 1200, 2000, 3500][i % 5],
+      codAmount: [0, 1200000, 0, 2500000, 750000][i % 5],
       description: ["Hàng tiêu dùng", "Vật liệu XD", "Linh kiện ĐT"][i % 3],
       ok: true,
     }));
@@ -157,6 +162,7 @@ export function ImportOrderDialog({ open, onOpenChange }: Props) {
           contactPhone: c.phone,
         },
         weightKg: r.weightKg,
+        codAmount: r.codAmount > 0 ? r.codAmount : undefined,
         description: r.description || "Hàng",
         requestedDeliveryAt: new Date(Date.now() + 86400000).toISOString(),
         source: "IMPORT",
@@ -170,9 +176,9 @@ export function ImportOrderDialog({ open, onOpenChange }: Props) {
 
   function downloadTemplate() {
     const csv =
-      "customerCode,pickup,dropoff,weightKg,description\n" +
-      "KH-001,HCM Tân Bình,Bình Dương,500,Hàng tiêu dùng\n" +
-      "KH-002,HCM Tân Bình,Đồng Nai,800,Vật liệu xây dựng";
+      "customerCode,pickup,dropoff,weightKg,codAmount,description\n" +
+      "KH-001,HCM Tân Bình,Bình Dương,500,0,Hàng tiêu dùng\n" +
+      "KH-002,HCM Tân Bình,Đồng Nai,800,1200000,Vật liệu xây dựng";
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
@@ -189,7 +195,7 @@ export function ImportOrderDialog({ open, onOpenChange }: Props) {
         <DialogHeader>
           <DialogTitle>Import đơn từ Excel</DialogTitle>
           <DialogDescription>
-            Cột yêu cầu: customerCode, pickup, dropoff, weightKg, description
+            Cột yêu cầu: customerCode, pickup, dropoff, weightKg, description · tuỳ chọn: codAmount (tiền thu hộ)
           </DialogDescription>
         </DialogHeader>
 
@@ -260,6 +266,7 @@ export function ImportOrderDialog({ open, onOpenChange }: Props) {
                         <th className="px-3 py-2 font-medium">Lấy</th>
                         <th className="px-3 py-2 font-medium">Giao</th>
                         <th className="px-3 py-2 font-medium">KL</th>
+                        <th className="px-3 py-2 font-medium">Thu hộ</th>
                         <th className="px-3 py-2 font-medium">Mô tả</th>
                         <th className="px-3 py-2 font-medium">Trạng thái</th>
                       </tr>
@@ -274,6 +281,9 @@ export function ImportOrderDialog({ open, onOpenChange }: Props) {
                           <td className="px-3 py-1.5 text-xs">{r.pickup}</td>
                           <td className="px-3 py-1.5 text-xs">{r.dropoff}</td>
                           <td className="px-3 py-1.5">{r.weightKg}</td>
+                          <td className="px-3 py-1.5 text-xs">
+                            {r.codAmount > 0 ? formatVnd(r.codAmount) : "—"}
+                          </td>
                           <td className="px-3 py-1.5 text-xs">{r.description}</td>
                           <td className="px-3 py-1.5">
                             {r.ok ? (

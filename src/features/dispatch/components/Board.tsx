@@ -37,7 +37,7 @@ import { AutoDispatchPreviewModal } from "./AutoDispatchPreviewModal";
 import { CarrierPickerSheet } from "./CarrierPickerSheet";
 import { SupervisorReviewDialog } from "./SupervisorReviewDialog";
 import { Button } from "@/shared/ui/button";
-import { MapCanvas } from "@/shared/map";
+import { FleetMapPanel } from "./FleetMapPanel";
 import type { Carrier, Order, Vehicle } from "@/shared/types";
 import { ShieldCheck, ShieldAlert, Clock } from "lucide-react";
 import Link from "next/link";
@@ -64,6 +64,13 @@ export function DispatchBoard() {
     const [autoOpen, setAutoOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState("");
     const [vehicleSearch, setVehicleSearch] = useState("");
+    const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
+
+    // Chọn xe để focus trên bản đồ (đồng thời chuyển sang tab Bản đồ ở mobile).
+    function focusVehicle(id: string | null) {
+        setSelectedVehicleId(id);
+        if (id) setMobileTab("map");
+    }
 
     const pendingOrders = useMemo(
         () => orders.filter((o) => o.status === "NEW" || o.status === "PENDING_DISPATCH"),
@@ -225,44 +232,6 @@ export function DispatchBoard() {
         }
         setAcceptCtx({ order, vehicle });
     }
-
-    // Map markers
-    const mapMarkers = useMemo(() => {
-        const m: {
-            id: string;
-            lat: number;
-            lng: number;
-            popup: string;
-            kind: "vehicle-busy" | "vehicle-idle" | "pickup" | "dropoff";
-        }[] = [];
-        busyVehicles.forEach((v) => {
-            m.push({
-                id: `v-${v.id}`,
-                lat: v.currentLocation.lat,
-                lng: v.currentLocation.lng,
-                kind: "vehicle-busy",
-                popup: `<b>${v.plateNumber}</b><br/>${v.driverName}<br/>Tốc độ: ${v.speedKmh ?? 40} km/h<br/>Tiến độ: ${Math.round((v.routeProgress ?? 0) * 100)}%`,
-            });
-        });
-        availableVehicles.slice(0, 12).forEach((v) => {
-            m.push({
-                id: `v-${v.id}`,
-                lat: v.currentLocation.lat,
-                lng: v.currentLocation.lng,
-                kind: "vehicle-idle",
-                popup: `<b>${v.plateNumber}</b><br/>Sẵn sàng • ${v.capacityKg.toLocaleString()} kg`,
-            });
-        });
-        return m;
-    }, [busyVehicles, availableVehicles]);
-
-    const mapPolylines = useMemo(
-        () =>
-            busyVehicles
-                .filter((v) => v.routePolyline && v.routePolyline.length > 1)
-                .map((v) => ({ id: v.id, points: v.routePolyline! })),
-        [busyVehicles],
-    );
 
     const customerName = (id: string) => customers.find((c) => c.id === id)?.name ?? "—";
 
@@ -483,6 +452,7 @@ export function DispatchBoard() {
                                                     vehicle={v ?? null}
                                                     canUnassign={active?.status === "ASSIGNED"}
                                                     onUnassign={() => handleUnassign(o)}
+                                                    onFocusVehicle={v ? () => focusVehicle(v.id) : undefined}
                                                 />
                                             );
                                         })}
@@ -494,15 +464,11 @@ export function DispatchBoard() {
 
                     {mobileTab === "map" && (
                         <Card className="h-full overflow-hidden">
-                            <div className="h-full">
-                                <MapCanvas
-                                    center={{ lat: 10.85, lng: 106.7 }}
-                                    zoom={9}
-                                    markers={mapMarkers}
-                                    polylines={mapPolylines}
-                                    className="h-full w-full"
-                                />
-                            </div>
+                            <FleetMapPanel
+                                selectedVehicleId={selectedVehicleId}
+                                onSelectVehicle={setSelectedVehicleId}
+                                className="h-full w-full"
+                            />
                         </Card>
                     )}
 
@@ -542,7 +508,8 @@ export function DispatchBoard() {
                                 {filteredAvailable.map((v) => (
                                     <div
                                         key={v.id}
-                                        className="rounded-md border p-3 text-sm bg-card"
+                                        onClick={() => focusVehicle(v.id)}
+                                        className="rounded-md border p-3 text-sm bg-card cursor-pointer hover:border-primary/50 active:bg-primary/5"
                                     >
                                         <div className="flex items-center justify-between mb-1">
                                             <p className="font-mono font-semibold">
@@ -568,7 +535,8 @@ export function DispatchBoard() {
                                 {filteredBusy.map((v) => (
                                     <div
                                         key={v.id}
-                                        className="rounded-md border bg-muted/40 p-3 text-sm opacity-80"
+                                        onClick={() => focusVehicle(v.id)}
+                                        className="rounded-md border bg-muted/40 p-3 text-sm opacity-80 cursor-pointer hover:opacity-100 hover:border-primary/50 active:bg-primary/5"
                                     >
                                         <div className="flex items-center justify-between mb-1">
                                             <p className="font-mono font-semibold">
@@ -770,39 +738,11 @@ export function DispatchBoard() {
                 {/* ---- CENTER: Map (flex-1, fills remaining space) ---- */}
                 <section className="flex-1 min-w-0 min-h-0">
                     <Card className="relative h-full max-h-[calc(100vh-7rem)] overflow-hidden">
-                        <div className="h-full">
-                            <MapCanvas
-                                center={{ lat: 10.85, lng: 106.7 }}
-                                zoom={9}
-                                markers={mapMarkers}
-                                polylines={mapPolylines}
-                                className="h-full w-full"
-                            />
-                        </div>
-                        {/* Floating stats overlay — gives the map context without clutter */}
-                        <div className="pointer-events-none absolute left-3 top-3 flex flex-col gap-1.5 text-[11px]">
-                            <div className="rounded-md bg-background/85 backdrop-blur-sm border shadow-sm px-2.5 py-1.5 flex items-center gap-2">
-                                <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                                <span className="text-muted-foreground">Sẵn sàng</span>
-                                <span className="font-semibold tabular-nums">
-                                    {availableVehicles.length}
-                                </span>
-                            </div>
-                            <div className="rounded-md bg-background/85 backdrop-blur-sm border shadow-sm px-2.5 py-1.5 flex items-center gap-2">
-                                <span className="h-2 w-2 rounded-full bg-blue-500" />
-                                <span className="text-muted-foreground">Đang chạy</span>
-                                <span className="font-semibold tabular-nums">
-                                    {busyVehicles.length}
-                                </span>
-                            </div>
-                            <div className="rounded-md bg-background/85 backdrop-blur-sm border shadow-sm px-2.5 py-1.5 flex items-center gap-2">
-                                <Package className="h-3 w-3 text-muted-foreground" />
-                                <span className="text-muted-foreground">Đơn chờ</span>
-                                <span className="font-semibold tabular-nums">
-                                    {pendingOrders.length}
-                                </span>
-                            </div>
-                        </div>
+                        <FleetMapPanel
+                            selectedVehicleId={selectedVehicleId}
+                            onSelectVehicle={setSelectedVehicleId}
+                            className="h-full w-full"
+                        />
                     </Card>
                 </section>
 
@@ -852,7 +792,12 @@ export function DispatchBoard() {
                                 </p>
                             )}
                             {filteredAvailable.map((v) => (
-                                <DroppableVehicle key={v.id} vehicle={v} />
+                                <DroppableVehicle
+                                    key={v.id}
+                                    vehicle={v}
+                                    selected={selectedVehicleId === v.id}
+                                    onSelect={() => focusVehicle(v.id)}
+                                />
                             ))}
                             <div className="flex items-center justify-between mt-3">
                                 <p className="text-[10px] uppercase tracking-wider text-muted-foreground font-semibold">
@@ -865,7 +810,13 @@ export function DispatchBoard() {
                             {filteredBusy.map((v) => (
                                 <div
                                     key={v.id}
-                                    className="rounded-md border bg-muted/40 p-2 text-xs opacity-80"
+                                    onClick={() => focusVehicle(v.id)}
+                                    className={cn(
+                                        "rounded-md border p-2 text-xs cursor-pointer transition",
+                                        selectedVehicleId === v.id
+                                            ? "border-primary ring-1 ring-primary bg-primary/5"
+                                            : "bg-muted/40 opacity-80 hover:opacity-100 hover:border-primary/50",
+                                    )}
                                 >
                                     <div className="flex items-center justify-between gap-2">
                                         <p className="font-mono font-semibold truncate">
@@ -976,12 +927,14 @@ function AssignedOrderCard({
     vehicle,
     canUnassign,
     onUnassign,
+    onFocusVehicle,
 }: {
     order: Order;
     customerName: string;
     vehicle: Vehicle | null;
     canUnassign: boolean;
     onUnassign: () => void;
+    onFocusVehicle?: () => void;
 }) {
     const statusLabel: Record<string, { text: string; tone: "success" | "default" | "warning" }> = {
         DISPATCHED: { text: "Đã phân", tone: "success" },
@@ -1020,7 +973,12 @@ function AssignedOrderCard({
                 </div>
             </div>
             {vehicle && (
-                <div className="flex items-center justify-between rounded bg-muted/50 px-2 py-1">
+                <button
+                    type="button"
+                    onClick={onFocusVehicle}
+                    className="flex w-full items-center justify-between rounded bg-muted/50 px-2 py-1 text-left transition hover:bg-primary/10"
+                    title="Xem xe trên bản đồ"
+                >
                     <div className="min-w-0">
                         <p className="font-mono font-semibold flex items-center gap-1">
                             <Truck className="h-3 w-3" /> {vehicle.plateNumber}
@@ -1029,10 +987,11 @@ function AssignedOrderCard({
                             {vehicle.driverName}
                         </p>
                     </div>
-                    <span className="text-[10px] font-medium text-muted-foreground shrink-0 ml-2">
+                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-muted-foreground shrink-0 ml-2">
                         {formatKg(order.weightKg)}
+                        <MapPin className="h-3 w-3 text-primary" />
                     </span>
-                </div>
+                </button>
             )}
             {canUnassign && (
                 <button
@@ -1229,7 +1188,15 @@ function DraggableOrderCard({
     );
 }
 
-function DroppableVehicle({ vehicle }: { vehicle: Vehicle }) {
+function DroppableVehicle({
+    vehicle,
+    selected,
+    onSelect,
+}: {
+    vehicle: Vehicle;
+    selected?: boolean;
+    onSelect?: () => void;
+}) {
     const { setNodeRef, isOver, active } = useDroppable({ id: vehicle.id });
     const orders = useDataStore((s) => s.orders);
     const draggingOrder = active ? orders.find((o) => o.id === active.id) : null;
@@ -1238,12 +1205,15 @@ function DroppableVehicle({ vehicle }: { vehicle: Vehicle }) {
     return (
         <div
             ref={setNodeRef}
-            className={`rounded-md border p-2 text-xs transition ${
+            onClick={onSelect}
+            className={`rounded-md border p-2 text-xs transition cursor-pointer ${
                 isOver
                     ? wouldOverflow
                         ? "border-destructive bg-destructive/10"
                         : "border-primary bg-primary/10 shadow-sm"
-                    : "bg-card hover:border-primary/50 hover:shadow-sm"
+                    : selected
+                      ? "border-primary ring-1 ring-primary bg-primary/5"
+                      : "bg-card hover:border-primary/50 hover:shadow-sm"
             }`}
         >
             <div className="flex items-center justify-between gap-2">

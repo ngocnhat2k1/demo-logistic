@@ -25,7 +25,7 @@ import { useDataStore } from "@/shared/stores/data";
 import { useUIStore } from "@/shared/stores/ui";
 import { useAuthStore } from "@/features/auth/stores/auth";
 import { checkQuota, quotaInUse, quotaLabel } from "@/features/orders/domain/quota";
-import { formatKg } from "@/shared/utils";
+import { formatKg, formatVnd } from "@/shared/utils";
 import { PLACES, type PlaceKey } from "@/shared/mock/geo";
 
 interface Props {
@@ -57,6 +57,7 @@ export function CreateOrderDialog({ open, onOpenChange, onOpenImport }: Props) {
     setWarehouseId((prev) => prev || def);
   }, [open, currentWarehouseId]);
   const [weightKg, setWeightKg] = useState<number>(500);
+  const [codAmount, setCodAmount] = useState<number>(0);
   const [description, setDescription] = useState("Hàng tiêu dùng");
   const [notes, setNotes] = useState("");
   const [requestedDeliveryAt, setRequestedDeliveryAt] = useState(
@@ -74,6 +75,7 @@ export function CreateOrderDialog({ open, onOpenChange, onOpenImport }: Props) {
     setWarehouseId("");
     setDropoffKey("BD_DI_AN");
     setWeightKg(500);
+    setCodAmount(0);
     setDescription("Hàng tiêu dùng");
     setNotes("");
     setRequestedDeliveryAt(
@@ -120,6 +122,7 @@ export function CreateOrderDialog({ open, onOpenChange, onOpenImport }: Props) {
         contactPhone: customer.phone,
       },
       weightKg,
+      codAmount: codAmount > 0 ? codAmount : undefined,
       description,
       notes,
       requestedDeliveryAt: new Date(requestedDeliveryAt).toISOString(),
@@ -237,6 +240,23 @@ export function CreateOrderDialog({ open, onOpenChange, onOpenImport }: Props) {
                 value={description}
                 onChange={(e) => setDescription(e.target.value)}
               />
+            </div>
+
+            <div className="space-y-1.5 md:col-span-2">
+              <Label>Tiền thu hộ COD (VNĐ)</Label>
+              <Input
+                type="number"
+                min={0}
+                step={1000}
+                value={codAmount}
+                onChange={(e) => setCodAmount(Number(e.target.value))}
+                placeholder="0 = không thu hộ"
+              />
+              <p className="text-xs text-muted-foreground">
+                {codAmount > 0
+                  ? `Tài xế thu hộ ${formatVnd(codAmount)} qua chuyển khoản trước khi hoàn tất đơn.`
+                  : "Để 0 nếu đơn không cần thu tiền khi giao."}
+              </p>
             </div>
 
             <div className="space-y-1.5 md:col-span-2">

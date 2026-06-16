@@ -16,8 +16,12 @@ import {
   Camera,
   PenLine,
   Gauge,
+  QrCode,
+  Wallet,
+  Loader2,
+  Home,
 } from "lucide-react";
-import { formatKg } from "@/shared/utils";
+import { formatKg, formatVnd } from "@/shared/utils";
 import { toast } from "sonner";
 import { useAuthStore } from "@/features/auth/stores/auth";
 import { useState, useRef, useMemo } from "react";
@@ -46,6 +50,8 @@ export default function DriverOrderDetailPage() {
   const order = useDataStore((s) => s.orders.find((o) => o.id === id));
   const setOrderStatus = useDataStore((s) => s.setOrderStatus);
   const completeDelivery = useDataStore((s) => s.completeDelivery);
+  const confirmDeliveryPendingPayment = useDataStore((s) => s.confirmDeliveryPendingPayment);
+  const submitCodTransfer = useDataStore((s) => s.submitCodTransfer);
   const reportDeliveryFailure = useDataStore((s) => s.reportDeliveryFailure);
   const pushNotification = useDataStore((s) => s.pushNotification);
   const customers = useDataStore((s) => s.customers);
@@ -63,6 +69,8 @@ export default function DriverOrderDetailPage() {
   const [signature, setSignature] = useState<string | null>(null);
   const [odometerKm, setOdometerKm] = useState<number>(0);
   const sigRef = useRef<HTMLCanvasElement | null>(null);
+  // True khi tài xế vừa hoàn tất luồng giao+thanh toán trong phiên này (để hiện màn hoàn tất).
+  const [paymentFlow, setPaymentFlow] = useState(false);
 
   const myVehicle = useMemo(
     () => vehicles.find((v) => v.id === order?.assignments[0]?.vehicleId),
@@ -123,6 +131,22 @@ export default function DriverOrderDetailPage() {
       return;
     }
     const sig = signature || sigRef.current?.toDataURL("image/png");
+    const needsPayment = (order.codAmount ?? 0) > 0;
+    if (needsPayment) {
+      // Đơn thu hộ: chuyển sang bước chờ thanh toán, tài xế ở lại màn này.
+      confirmDeliveryPendingPayment(order.id, sig, [], user.id, odometerKm);
+      pushNotification({
+        type: "ORDER_DELIVERED",
+        severity: "info",
+        title: "Đã giao — chờ thanh toán",
+        message: `${order.code} • thu hộ ${formatVnd(order.codAmount ?? 0)}`,
+        targetRoles: ["DISPATCHER", "SALES", "OPS_MANAGER"],
+      });
+      setPaymentFlow(true);
+      setCompleteOpen(false);
+      toast.success("Đã giao — chờ khách thanh toán");
+      return;
+    }
     completeDelivery(order.id, sig, [], user.id, odometerKm);
     pushNotification({
       type: "ORDER_DELIVERED",
@@ -134,6 +158,12 @@ export default function DriverOrderDetailPage() {
     toast.success(`Đã giao đơn ${order.code}`);
     setCompleteOpen(false);
     router.push("/driver");
+  }
+
+  function onCustomerTransferred() {
+    if (!user || !order) return;
+    submitCodTransfer(order.id, user.id);
+    toast.info("Đang đối soát giao dịch chuyển khoản...");
   }
 
   function reportFail() {
@@ -274,6 +304,86 @@ export default function DriverOrderDetailPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Thu hộ — chờ thanh toán (chuyển khoản) */}
+      {order.status === "PENDING_PAYMENT" && (
+        <Card className="border-warning/50">
+          <CardContent className="p-4 space-y-4">
+            <div className="flex items-center gap-2">
+              <Wallet className="h-5 w-5 text-warning" />
+              <p className="font-semibold">Thu hộ qua chuyển khoản</p>
+            </div>
+            <div className="rounded-md border bg-warning/5 p-3 text-center">
+              <p className="text-xs text-muted-foreground">Số tiền cần thu</p>
+              <p className="text-2xl font-bold text-warning">{formatVnd(order.codAmount ?? 0)}</p>
+            </div>
+
+            {/* QR chuyển khoản (mock) */}
+            <div className="rounded-lg border bg-white p-4 flex flex-col items-center gap-2">
+              <QrCode className="h-32 w-32 text-foreground" strokeWidth={1} />
+              <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                VietQR (mock)
+              </p>
+              <div className="w-full space-y-0.5 border-t pt-2 text-xs text-muted-foreground">
+                <p className="flex justify-between">
+                  <span>Ngân hàng</span>
+                  <span className="font-medium text-foreground">MB Bank</span>
+                </p>
+                <p className="flex justify-between">
+                  <span>Số TK</span>
+                  <span className="font-mono font-medium text-foreground">0399 168 888</span>
+                </p>
+                <p className="flex justify-between">
+                  <span>Chủ TK</span>
+                  <span className="font-medium text-foreground">CTY LOGISTIC DEMO</span>
+                </p>
+                <p className="flex justify-between">
+                  <span>Nội dung</span>
+                  <span className="font-mono font-medium text-foreground">{order.code}</span>
+                </p>
+              </div>
+            </div>
+
+            {order.codStatus === "VERIFYING" ? (
+              <Button size="xl" variant="outline" className="w-full" disabled>
+                <Loader2 className="h-5 w-5 animate-spin" /> Đang đối soát giao dịch...
+              </Button>
+            ) : (
+              <Button size="xl" className="w-full" onClick={onCustomerTransferred}>
+                <CheckCircle2 className="h-5 w-5" /> Khách đã chuyển khoản
+              </Button>
+            )}
+            <p className="text-center text-xs text-muted-foreground">
+              Đơn chỉ hoàn tất sau khi hệ thống xác nhận đã nhận tiền.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Hoàn tất sau khi nhận thanh toán */}
+      {paymentFlow && order.status === "DELIVERED" && (
+        <Card className="border-success/50">
+          <CardContent className="p-6 flex flex-col items-center gap-3 text-center">
+            <div className="rounded-full bg-success/10 p-3">
+              <CheckCircle2 className="h-10 w-10 text-success" />
+            </div>
+            <div>
+              <p className="text-lg font-semibold">Đã nhận thanh toán</p>
+              <p className="text-sm text-muted-foreground">
+                Đơn {order.code} • {formatVnd(order.codAmount ?? 0)} đã hoàn tất.
+              </p>
+            </div>
+            <Button
+              size="xl"
+              variant="success"
+              className="w-full"
+              onClick={() => router.push("/driver")}
+            >
+              <Home className="h-5 w-5" /> Về trang chủ
+            </Button>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Failure dialog */}
       <Dialog open={failOpen} onOpenChange={setFailOpen}>
