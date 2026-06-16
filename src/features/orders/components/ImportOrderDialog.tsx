@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { FileSpreadsheet, Download, Upload } from "lucide-react";
 import { toast } from "sonner";
 
@@ -12,7 +12,16 @@ import {
   DialogDescription,
 } from "@/shared/ui/dialog";
 import { Button } from "@/shared/ui/button";
+import { Label } from "@/shared/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/shared/ui/select";
 import { useDataStore } from "@/shared/stores/data";
+import { useUIStore } from "@/shared/stores/ui";
 import { PLACES } from "@/shared/mock/geo";
 
 interface ParsedRow {
@@ -32,12 +41,31 @@ interface Props {
 
 export function ImportOrderDialog({ open, onOpenChange }: Props) {
   const customers = useDataStore((s) => s.customers);
+  const warehouses = useDataStore((s) => s.warehouses);
   const createOrder = useDataStore((s) => s.createOrder);
+  const currentWarehouseId = useUIStore((s) => s.currentWarehouseId);
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [loading, setLoading] = useState(false);
+  const [warehouseId, setWarehouseId] = useState("");
+
+  const activeWarehouses = warehouses.filter((w) => w.status === "ACTIVE");
+
+  // Mặc định kho nhập = kho đang chọn (cụ thể) → kho MAIN → kho đầu tiên.
+  useEffect(() => {
+    if (!open) return;
+    setWarehouseId((prev) => {
+      if (prev) return prev;
+      if (currentWarehouseId && currentWarehouseId !== "ALL") return currentWarehouseId;
+      const main = activeWarehouses.find((w) => w.type === "MAIN") ?? activeWarehouses[0];
+      return main?.id ?? "";
+    });
+  }, [open, currentWarehouseId]);
 
   function handleOpenChange(val: boolean) {
-    if (!val) setRows([]);
+    if (!val) {
+      setRows([]);
+      setWarehouseId("");
+    }
     onOpenChange(val);
   }
 
@@ -98,23 +126,28 @@ export function ImportOrderDialog({ open, onOpenChange }: Props) {
   }
 
   function commit() {
+    const wh = activeWarehouses.find((w) => w.id === warehouseId);
+    if (!wh) {
+      toast.error("Vui lòng chọn kho nhập đơn");
+      return;
+    }
     let n = 0;
     rows.forEach((r) => {
       if (!r.ok) return;
       const c = customers.find((cc) => cc.code === r.customerCode);
       if (!c) return;
-      const pickup = PLACES.HCM_KHO_TAN_BINH;
       const dropPlace =
         Object.values(PLACES).find((p) => p.name.includes(r.dropoff)) ??
         PLACES.BD_DI_AN;
       createOrder({
         customerId: c.id,
+        warehouseId: wh.id,
         pickup: {
-          address: pickup.name,
-          lat: pickup.lat,
-          lng: pickup.lng,
-          contactName: "Kho",
-          contactPhone: "0900000000",
+          address: wh.location.address,
+          lat: wh.location.lat,
+          lng: wh.location.lng,
+          contactName: wh.contactName ?? "Kho",
+          contactPhone: wh.contactPhone ?? "0900000000",
         },
         dropoff: {
           address: dropPlace.name,
@@ -161,6 +194,25 @@ export function ImportOrderDialog({ open, onOpenChange }: Props) {
         </DialogHeader>
 
         <div className="space-y-4">
+          <div className="space-y-1.5">
+            <Label>Kho nhập đơn *</Label>
+            <Select value={warehouseId} onValueChange={setWarehouseId}>
+              <SelectTrigger className="sm:w-72">
+                <SelectValue placeholder="Chọn kho" />
+              </SelectTrigger>
+              <SelectContent>
+                {activeWarehouses.map((w) => (
+                  <SelectItem key={w.id} value={w.id}>
+                    {w.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <p className="text-xs text-muted-foreground">
+              Tất cả đơn trong file sẽ được nhập vào kho này (điểm lấy = vị trí kho).
+            </p>
+          </div>
+
           <div className="flex flex-wrap gap-2 items-center">
             <label className="flex items-center gap-2 cursor-pointer px-3 py-2 rounded-md border text-sm hover:bg-muted transition-colors">
               <Upload className="h-4 w-4" />
@@ -193,7 +245,7 @@ export function ImportOrderDialog({ open, onOpenChange }: Props) {
                 <Button
                   size="sm"
                   onClick={commit}
-                  disabled={validCount === 0}
+                  disabled={validCount === 0 || !warehouseId}
                 >
                   Tạo {validCount} đơn
                 </Button>

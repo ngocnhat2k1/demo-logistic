@@ -30,6 +30,7 @@ export function SupervisorReviewDialog({ order, onClose }: Props) {
   const carriers = useDataStore((s) => s.carriers);
   const vehicles = useDataStore((s) => s.vehicles);
   const customers = useDataStore((s) => s.customers);
+  const warehouses = useDataStore((s) => s.warehouses);
   const users = useDataStore((s) => s.users);
   const approveSupervisorReview = useDataStore((s) => s.approveSupervisorReview);
   const rejectSupervisorReview = useDataStore((s) => s.rejectSupervisorReview);
@@ -67,9 +68,10 @@ export function SupervisorReviewDialog({ order, onClose }: Props) {
 
   const suggestedIds = useMemo(() => {
     if (!order || carrierVehicles.length === 0) return new Set<string>();
-    const top = suggestVehicles({ order, vehicles: carrierVehicles });
+    const warehouse = warehouses.find((w) => w.id === order.warehouseId) ?? null;
+    const top = suggestVehicles({ order, vehicles: carrierVehicles, warehouse });
     return new Set(top.map((s) => s.vehicleId));
-  }, [order, carrierVehicles]);
+  }, [order, carrierVehicles, warehouses]);
 
   if (!order) return null;
 

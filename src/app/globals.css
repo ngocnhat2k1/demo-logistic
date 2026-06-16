@@ -55,3 +55,31 @@
 .leaflet-bottom.leaflet-right {
     display: none;
 }
+
+/* ----- In phiếu (print) ----- */
+/* Vùng phiếu in: ẩn trên màn hình, chỉ hiện khi in (window.print). */
+.print-area {
+    display: none;
+}
+@media print {
+    body * {
+        visibility: hidden;
+    }
+    .print-area {
+        display: block;
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        padding: 24px;
+        background: #fff;
+        color: #000;
+    }
+    .print-area,
+    .print-area * {
+        visibility: visible;
+    }
+    .no-print {
+        display: none !important;
+    }
+}

@@ -1,6 +1,7 @@
 "use client";
 
 import { Sidebar } from "@/shared/components/Sidebar";
+import { WarehouseGate } from "@/features/warehouses/components/WarehouseGate";
 import { useAuthStore } from "@/features/auth/stores/auth";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -22,7 +23,9 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
   return (
     <div className="flex h-screen bg-muted/30">
       <Sidebar />
-      <div className="flex flex-1 flex-col overflow-hidden">{children}</div>
+      <div className="flex flex-1 flex-col overflow-hidden">
+        <WarehouseGate>{children}</WarehouseGate>
+      </div>
     </div>
   );
 }

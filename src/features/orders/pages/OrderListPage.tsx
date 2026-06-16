@@ -6,6 +6,7 @@ import { Button } from "@/shared/ui/button";
 import { Input } from "@/shared/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/shared/ui/select";
 import { useDataStore } from "@/shared/stores/data";
+import { useScopedOrders } from "@/shared/hooks/useScopedData";
 import { useMemo, useState } from "react";
 import { Plus, Search, Upload, MapPin, X, Pencil } from "lucide-react";
 import Link from "next/link";
@@ -35,7 +36,7 @@ const STATUS_OPTIONS: (OrderStatus | "ALL")[] = [
 ];
 
 export default function OrderListPage() {
-  const orders = useDataStore((s) => s.orders);
+  const orders = useScopedOrders();
   const customers = useDataStore((s) => s.customers);
   const sp = useSearchParams();
   const [q, setQ] = useState("");

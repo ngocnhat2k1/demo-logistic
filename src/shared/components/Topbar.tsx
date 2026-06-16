@@ -14,6 +14,7 @@ import {
 } from "@/shared/ui/dropdown-menu";
 import { Button } from "@/shared/ui/button";
 import { Badge } from "@/shared/ui/badge";
+import { WarehouseSwitcher } from "@/features/warehouses/components/WarehouseSwitcher";
 import {
   Dialog,
   DialogContent,
@@ -49,6 +50,7 @@ export function Topbar({ title }: { title: string }) {
         <h1 className="text-base md:text-lg font-semibold truncate">{title}</h1>
       </div>
       <div className="flex items-center gap-2">
+        <WarehouseSwitcher />
         {sos.length > 0 && (
           <button
             type="button"

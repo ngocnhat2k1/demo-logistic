@@ -3,6 +3,7 @@
 import { Topbar } from "@/shared/components/Topbar";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/shared/ui/card";
 import { useDataStore } from "@/shared/stores/data";
+import { useScopedOrders, useScopedVehicles } from "@/shared/hooks/useScopedData";
 import { Package, Truck, Users, AlertTriangle, CheckCircle2, Clock } from "lucide-react";
 import { format, subDays, startOfDay } from "date-fns";
 import { vi } from "date-fns/locale";
@@ -12,8 +13,8 @@ import { Progress } from "@/shared/ui/progress";
 import Link from "next/link";
 
 export default function DashboardPage() {
-  const orders = useDataStore((s) => s.orders);
-  const vehicles = useDataStore((s) => s.vehicles);
+  const orders = useScopedOrders();
+  const vehicles = useScopedVehicles();
   const customers = useDataStore((s) => s.customers);
 
   const newCount = orders.filter(

@@ -18,7 +18,7 @@ import { suggestVehicles } from "@/features/dispatch/domain/dispatchHeuristic";
 import { useDataStore } from "@/shared/stores/data";
 import { useAuthStore } from "@/features/auth/stores/auth";
 import { formatKg } from "@/shared/utils";
-import type { Order, Vehicle } from "@/shared/types";
+import type { Order, Vehicle, Warehouse } from "@/shared/types";
 
 interface Props {
   orders: Order[];
@@ -33,12 +33,13 @@ interface PlanRow {
   reasons?: string[];
 }
 
-function buildPlan(orders: Order[], vehicles: Vehicle[]): PlanRow[] {
+function buildPlan(orders: Order[], vehicles: Vehicle[], warehouses: Warehouse[]): PlanRow[] {
   const reserved = new Set<string>();
   const rows: PlanRow[] = [];
   for (const order of orders) {
     const pool = vehicles.filter((v) => !reserved.has(v.id));
-    const sugg = suggestVehicles({ order, vehicles: pool });
+    const warehouse = warehouses.find((w) => w.id === order.warehouseId) ?? null;
+    const sugg = suggestVehicles({ order, vehicles: pool, warehouse });
     if (sugg.length === 0) {
       rows.push({ order });
       continue;
@@ -59,6 +60,7 @@ export function AutoDispatchPreviewModal({ orders, open, onClose }: Props) {
   const allVehicles = useDataStore((s) => s.vehicles);
   const carriers = useDataStore((s) => s.carriers);
   const customers = useDataStore((s) => s.customers);
+  const warehouses = useDataStore((s) => s.warehouses);
   const assignOrderToVehicle = useDataStore((s) => s.assignOrderToVehicle);
   const submitOrderCarrier = useDataStore((s) => s.submitOrderCarrier);
   const pushNotification = useDataStore((s) => s.pushNotification);
@@ -74,7 +76,10 @@ export function AutoDispatchPreviewModal({ orders, open, onClose }: Props) {
     [allVehicles, internalCarrierIds],
   );
 
-  const plan = useMemo(() => (open ? buildPlan(orders, vehicles) : []), [open, orders, vehicles]);
+  const plan = useMemo(
+    () => (open ? buildPlan(orders, vehicles, warehouses) : []),
+    [open, orders, vehicles, warehouses],
+  );
 
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
 

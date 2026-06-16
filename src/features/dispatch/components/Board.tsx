@@ -11,6 +11,7 @@ import {
     useDroppable,
 } from "@dnd-kit/core";
 import { useDataStore } from "@/shared/stores/data";
+import { useScopedOrders } from "@/shared/hooks/useScopedData";
 import { useAuthStore } from "@/features/auth/stores/auth";
 import { Card, CardContent, CardHeader, CardTitle } from "@/shared/ui/card";
 import { Badge } from "@/shared/ui/badge";
@@ -45,8 +46,8 @@ type MobileTab = "orders" | "map" | "vehicles";
 type OrdersTab = "pending" | "review" | "assigned";
 
 export function DispatchBoard() {
-    const orders = useDataStore((s) => s.orders);
-    const vehicles = useDataStore((s) => s.vehicles);
+    const orders = useScopedOrders();
+    const vehicles = useDataStore((s) => s.vehicles); // pool điều phối: luôn dùng full, KHÔNG scope theo kho
     const carriers = useDataStore((s) => s.carriers);
     const customers = useDataStore((s) => s.customers);
     const unassignOrder = useDataStore((s) => s.unassignOrder);

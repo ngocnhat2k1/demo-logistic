@@ -3,7 +3,7 @@
 import { get, set, del, keys, clear } from "idb-keyval";
 import { type StateStorage } from "zustand/middleware";
 
-const NS = "logistic:v2:";
+const NS = "logistic:v3:";
 
 export const idbStorage: StateStorage = {
   async getItem(name) {

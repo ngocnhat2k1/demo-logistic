@@ -24,6 +24,9 @@ import type {
   UserRole,
   OdometerEntry,
   LicenseClass,
+  Warehouse,
+  Product,
+  StockMovement,
 } from "@/shared/types";
 import { buildSeed } from "@/shared/mock/seed";
 import { uid } from "@/shared/utils";
@@ -46,6 +49,9 @@ interface DataState {
   sos: SosAlert[];
   cyberLog: CyberSyncEntry[];
   returnReasons: ReturnReasonConfig[];
+  warehouses: Warehouse[];
+  products: Product[];
+  stockMovements: StockMovement[];
   _hasHydrated: boolean;
   setHydrated: () => void;
 
@@ -169,6 +175,32 @@ interface DataState {
   updateCarrier: (id: string, patch: Partial<Omit<Carrier, "id">>) => void;
   deleteCarrier: (id: string) => { ok: boolean; reason?: string };
 
+  // warehouses (kho hàng)
+  addWarehouse: (input: Omit<Warehouse, "id" | "createdAt">) => Warehouse;
+  updateWarehouse: (id: string, patch: Partial<Omit<Warehouse, "id" | "createdAt">>) => void;
+  toggleWarehouseStatus: (id: string) => void;
+  deleteWarehouse: (id: string) => { ok: boolean; reason?: string };
+
+  // products (SKU)
+  addProduct: (input: Omit<Product, "id" | "createdAt">) => Product;
+
+  // warehouse operations (nhập / xuất kho)
+  recordOutbound: (input: {
+    orderId: string;
+    actualWeightKg?: number;
+    extraCostNote?: string;
+    markPickedUp?: boolean;
+    actorId: string;
+  }) => { ok: boolean; reason?: string };
+  recordInbound: (input: {
+    warehouseId: string;
+    lines: { productId: string; quantity: number }[];
+    direction?: "INBOUND" | "ADJUST";
+    note?: string;
+    actorId: string;
+  }) => void;
+  receiveReturnToWarehouse: (returnId: string, actorId: string) => { ok: boolean; reason?: string };
+
   // vehicles (merged with driver)
   addVehicle: (input: {
     plateNumber: string;
@@ -232,6 +264,9 @@ const empty = {
   sos: [],
   cyberLog: [],
   returnReasons: [],
+  warehouses: [],
+  products: [],
+  stockMovements: [],
 };
 
 function nowIso() {
@@ -624,6 +659,10 @@ export const useDataStore = create<DataState>()(
           code,
           customerId: input.customerId,
           status: input.status ?? "NEW",
+          warehouseId: input.warehouseId,
+          direction: input.direction ?? "OUTBOUND",
+          declaredWeightKg: input.declaredWeightKg ?? input.weightKg,
+          items: input.items,
           pickup: input.pickup,
           dropoff: input.dropoff,
           weightKg: input.weightKg,
@@ -1104,7 +1143,8 @@ export const useDataStore = create<DataState>()(
         const pool = get().vehicles.filter(
           (v) => !!v.carrierId && internalCarrierIds.has(v.carrierId) && !exclude.has(v.id)
         );
-        const suggestions = suggestVehicles({ order, vehicles: pool });
+        const warehouse = get().warehouses.find((w) => w.id === order.warehouseId) ?? null;
+        const suggestions = suggestVehicles({ order, vehicles: pool, warehouse });
         const top = suggestions[0];
 
         // Mức 3 — đủ tin cậy → tự phân ngay.
@@ -1788,6 +1828,220 @@ export const useDataStore = create<DataState>()(
         return { ok: true };
       },
 
+      // ----- warehouses (kho hàng) -----
+      addWarehouse: (input) => {
+        const w: Warehouse = {
+          ...input,
+          id: uid("wh"),
+          code: input.code.trim().toUpperCase(),
+          name: input.name.trim(),
+          createdAt: nowIso(),
+        };
+        set({ warehouses: [w, ...get().warehouses] });
+        return w;
+      },
+      updateWarehouse: (id, patch) => {
+        set({
+          warehouses: get().warehouses.map((w) =>
+            w.id === id
+              ? {
+                  ...w,
+                  ...patch,
+                  code: patch.code ? patch.code.trim().toUpperCase() : w.code,
+                  name: patch.name ? patch.name.trim() : w.name,
+                }
+              : w
+          ),
+        });
+      },
+      toggleWarehouseStatus: (id) => {
+        set({
+          warehouses: get().warehouses.map((w) =>
+            w.id === id ? { ...w, status: w.status === "ACTIVE" ? "INACTIVE" : "ACTIVE" } : w
+          ),
+        });
+      },
+      deleteWarehouse: (id) => {
+        const s = get();
+        if (s.orders.some((o) => o.warehouseId === id)) {
+          return { ok: false, reason: "Kho vẫn còn đơn hàng tham chiếu." };
+        }
+        if (s.vehicles.some((v) => v.homeWarehouseId === id)) {
+          return { ok: false, reason: "Kho vẫn còn xe trực thuộc — chuyển xe trước." };
+        }
+        if (s.stockMovements.some((m) => m.warehouseId === id)) {
+          return { ok: false, reason: "Kho vẫn còn lịch sử tồn kho — không thể xoá." };
+        }
+        if (s.users.some((u) => u.warehouseId === id)) {
+          return { ok: false, reason: "Kho vẫn được gán cho người dùng." };
+        }
+        set({ warehouses: s.warehouses.filter((w) => w.id !== id) });
+        return { ok: true };
+      },
+
+      // ----- products (SKU) -----
+      addProduct: (input) => {
+        const p: Product = {
+          ...input,
+          id: uid("prod"),
+          sku: input.sku.trim().toUpperCase(),
+          name: input.name.trim(),
+          createdAt: nowIso(),
+        };
+        set({ products: [p, ...get().products] });
+        return p;
+      },
+
+      // ----- warehouse operations (nhập / xuất kho) -----
+      recordOutbound: (input) => {
+        const { orderId, actualWeightKg, extraCostNote, markPickedUp, actorId } = input;
+        const order = get().orders.find((o) => o.id === orderId);
+        if (!order) return { ok: false, reason: "Không tìm thấy đơn" };
+        if (!order.items || order.items.length === 0) {
+          return { ok: false, reason: "Đơn chưa có line item (SKU) để xuất kho" };
+        }
+        if (!order.warehouseId) {
+          return { ok: false, reason: "Đơn chưa gắn kho xuất" };
+        }
+        const warehouseId = order.warehouseId;
+        const items = order.items;
+
+        // Cân hàng: adjustOrderWeight tự điều chỉnh quota ở trạng thái releasable,
+        // bỏ qua quota khi PICKED_UP; declaredWeightKg (set lúc tạo) luôn được bảo toàn.
+        if (typeof actualWeightKg === "number" && Number.isFinite(actualWeightKg) && actualWeightKg > 0) {
+          get().adjustOrderWeight(orderId, actualWeightKg, actorId, extraCostNote);
+        }
+
+        const now = nowIso();
+        const moves: StockMovement[] = items.map((it) => ({
+          id: uid("mv"),
+          warehouseId,
+          productId: it.productId,
+          qtyDelta: -it.quantity,
+          direction: "OUTBOUND",
+          refType: "ORDER",
+          refId: orderId,
+          weighedKg: actualWeightKg,
+          recordedBy: actorId,
+          at: now,
+        }));
+        set({
+          stockMovements: [...moves, ...get().stockMovements],
+          orders: get().orders.map((o) =>
+            o.id === orderId
+              ? {
+                  ...o,
+                  updatedAt: now,
+                  events: [
+                    ...o.events,
+                    {
+                      id: uid("evt"),
+                      type: "STOCK_OUTBOUND",
+                      payload: {
+                        items: items.map((i) => ({ sku: i.sku, qty: i.quantity })),
+                        actualWeightKg: actualWeightKg ?? null,
+                      },
+                      actorId,
+                      at: now,
+                    },
+                  ],
+                }
+              : o
+          ),
+        });
+
+        if (markPickedUp) {
+          const cur = get().orders.find((o) => o.id === orderId);
+          if (cur && cur.status === "DISPATCHED") {
+            get().setOrderStatus(orderId, "PICKED_UP", actorId, { via: "OUTBOUND" });
+          }
+        }
+        return { ok: true };
+      },
+
+      recordInbound: (input) => {
+        const { warehouseId, lines, direction, note, actorId } = input;
+        const dir = direction ?? "INBOUND";
+        const now = nowIso();
+        const moves: StockMovement[] = lines
+          .filter((l) => l.productId && l.quantity !== 0)
+          .map((l) => ({
+            id: uid("mv"),
+            warehouseId,
+            productId: l.productId,
+            qtyDelta: dir === "ADJUST" ? l.quantity : Math.abs(l.quantity),
+            direction: dir,
+            refType: "MANUAL",
+            note,
+            recordedBy: actorId,
+            at: now,
+          }));
+        if (moves.length === 0) return;
+        set({ stockMovements: [...moves, ...get().stockMovements] });
+      },
+
+      receiveReturnToWarehouse: (returnId, actorId) => {
+        const ret = get().returns.find((r) => r.id === returnId);
+        if (!ret) return { ok: false, reason: "Không tìm thấy phiếu trả" };
+        if (ret.status === "COMPLETED") return { ok: false, reason: "Phiếu trả đã hoàn tất" };
+        const order = get().orders.find((o) => o.id === ret.originalOrderId);
+        const now = nowIso();
+
+        // 1. Đóng phiếu trả.
+        set({
+          returns: get().returns.map((r) =>
+            r.id === returnId ? { ...r, status: "COMPLETED", completedAt: now } : r
+          ),
+        });
+
+        // 2. Đơn gốc -> RETURNED (status đã có label/variant trong orderStatus.ts).
+        if (order) {
+          get().setOrderStatus(order.id, "RETURNED", actorId, { returnId });
+        }
+
+        // 3. Tăng tồn theo line-item của đơn gốc.
+        //    TRUNG TÍNH QUOTA: KHÔNG gọi reserve/release/consume — quota đã settle ở reportDeliveryFailure.
+        if (order && order.warehouseId && order.items && order.items.length > 0) {
+          const warehouseId = order.warehouseId;
+          const items = order.items;
+          const moves: StockMovement[] = items.map((it) => ({
+            id: uid("mv"),
+            warehouseId,
+            productId: it.productId,
+            qtyDelta: it.quantity,
+            direction: "INBOUND",
+            refType: "RETURN",
+            refId: returnId,
+            recordedBy: actorId,
+            at: now,
+          }));
+          set({
+            stockMovements: [...moves, ...get().stockMovements],
+            orders: get().orders.map((o) =>
+              o.id === order.id
+                ? {
+                    ...o,
+                    events: [
+                      ...o.events,
+                      {
+                        id: uid("evt"),
+                        type: "STOCK_INBOUND_RETURN",
+                        payload: {
+                          returnId,
+                          items: items.map((i) => ({ sku: i.sku, qty: i.quantity })),
+                        },
+                        actorId,
+                        at: now,
+                      },
+                    ],
+                  }
+                : o
+            ),
+          });
+        }
+        return { ok: true };
+      },
+
       // ----- vehicles (merged with driver) -----
       addVehicle: (input) => {
         const odometerKm = Math.max(0, Math.round(input.odometerKm ?? 0));
@@ -1954,20 +2208,40 @@ export const useDataStore = create<DataState>()(
 
       importCyberOrders: (count) => {
         const customers = get().customers;
+        // Đơn Cyber gắn về kho MAIN (hoặc kho đầu tiên) để vẫn scoped + có line-item xuất kho.
+        const allWarehouses = get().warehouses;
+        const mainWarehouse =
+          allWarehouses.find((w) => w.type === "MAIN") ?? allWarehouses[0];
+        const catalog = get().products;
         const items: Order[] = [];
         for (let i = 0; i < count; i++) {
           const c = customers[Math.floor(Math.random() * customers.length)];
           const wp = [400, 800, 1500, 2500][i % 4];
           const product = PRODUCTS[i % PRODUCTS.length];
+          const sku = catalog.length ? catalog[i % catalog.length] : undefined;
           const o = get().createOrder({
             customerId: c.id,
-            pickup: {
-              address: "Kho TT Tân Bình, HCM",
-              lat: 10.8011,
-              lng: 106.6529,
-              contactName: "Kho",
-              contactPhone: "02838000000",
-            } as Location,
+            warehouseId: mainWarehouse?.id,
+            items: sku
+              ? [
+                  {
+                    productId: sku.id,
+                    sku: sku.sku,
+                    name: sku.name,
+                    quantity: Math.max(1, Math.round(wp / Math.max(1, sku.unitWeightKg))),
+                    unitWeightKg: sku.unitWeightKg,
+                  },
+                ]
+              : undefined,
+            pickup: mainWarehouse
+              ? { ...mainWarehouse.location }
+              : ({
+                  address: "Kho TT Tân Bình, HCM",
+                  lat: 10.8011,
+                  lng: 106.6529,
+                  contactName: "Kho",
+                  contactPhone: "02838000000",
+                } as Location),
             dropoff: {
               address: "Đồng Nai - Biên Hòa",
               lat: 10.9574,

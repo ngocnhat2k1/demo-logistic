@@ -3,14 +3,15 @@
 import { Topbar } from "@/shared/components/Topbar";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/shared/ui/card";
 import { useDataStore } from "@/shared/stores/data";
+import { useScopedOrders, useScopedVehicles } from "@/shared/hooks/useScopedData";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, Pie, PieChart, Cell, Tooltip, XAxis, YAxis, ResponsiveContainer, Legend } from "recharts";
 import { format, subDays, startOfDay } from "date-fns";
 
 const COLORS = ["#16a34a", "#2563eb", "#f59e0b", "#dc2626", "#7c3aed"];
 
 export default function ReportsPage() {
-  const orders = useDataStore((s) => s.orders);
-  const vehicles = useDataStore((s) => s.vehicles);
+  const orders = useScopedOrders();
+  const vehicles = useScopedVehicles();
   const customers = useDataStore((s) => s.customers);
 
   const days = Array.from({ length: 7 }, (_, i) => startOfDay(subDays(new Date(), 6 - i)));

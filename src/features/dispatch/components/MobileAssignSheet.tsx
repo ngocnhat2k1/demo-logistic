@@ -29,6 +29,7 @@ export function MobileAssignSheet({ order, carrierId, onClose, onPickVehicle, on
   const allVehicles = useDataStore((s) => s.vehicles);
   const carriers = useDataStore((s) => s.carriers);
   const customers = useDataStore((s) => s.customers);
+  const warehouses = useDataStore((s) => s.warehouses);
   const open = !!order;
 
   const carrier = useMemo(
@@ -41,9 +42,13 @@ export function MobileAssignSheet({ order, carrierId, onClose, onPickVehicle, on
     [allVehicles, carrierId],
   );
 
+  const warehouse = useMemo(
+    () => (order ? warehouses.find((w) => w.id === order.warehouseId) ?? null : null),
+    [order, warehouses],
+  );
   const suggestions = useMemo(
-    () => (order ? suggestVehicles({ order, vehicles }) : []),
-    [order, vehicles],
+    () => (order ? suggestVehicles({ order, vehicles, warehouse }) : []),
+    [order, vehicles, warehouse],
   );
   const suggestedIds = useMemo(() => new Set(suggestions.map((s) => s.vehicleId)), [suggestions]);
 

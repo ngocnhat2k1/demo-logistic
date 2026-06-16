@@ -82,4 +82,6 @@ export const ORDER_EVENT_LABEL: Record<string, string> = {
   CANCELLED: "Đã huỷ",
   SPLIT_FROM: "Tách từ đơn gốc",
   SPLIT_INTO: "Tách thành các đơn con",
+  STOCK_OUTBOUND: "Xuất kho",
+  STOCK_INBOUND_RETURN: "Nhập kho hàng trả",
 };

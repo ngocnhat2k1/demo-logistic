@@ -29,6 +29,8 @@ export interface User {
   /** With merged Vehicle+Driver model, drivers log in as the vehicle they own (1:1). */
   vehicleId?: string;
   customerId?: string;
+  /** Kho mặc định/được gán (load-bearing cho khoá kho của DISPATCHER). */
+  warehouseId?: string;
 }
 
 // ----- Customer + Quota -----
@@ -125,6 +127,72 @@ export interface Vehicle {
   maintenanceIntervalKm: number;
   /** Most recent odometer reading entries (latest first, capped). */
   odometerHistory: OdometerEntry[];
+
+  /** Kho nhà (chỉ để hiển thị + soft-scoring điều phối; KHÔNG lọc cứng pool xe). */
+  homeWarehouseId?: string;
+}
+
+// ----- Warehouse / Product / Inventory -----
+export type WarehouseType = "MAIN" | "SATELLITE" | "TRANSIT";
+export type WarehouseStatus = "ACTIVE" | "INACTIVE";
+
+export interface Warehouse {
+  id: string;
+  code: string; // "KHO-TB"
+  name: string;
+  type: WarehouseType;
+  status: WarehouseStatus;
+  location: Location; // tái dùng Location (address + lat/lng + contact)
+  capacityKg?: number;
+  contactName?: string;
+  contactPhone?: string;
+  operatingHours?: string;
+  createdAt: string;
+}
+
+export type ProductStatus = "ACTIVE" | "INACTIVE";
+
+export interface Product {
+  id: string;
+  sku: string;
+  name: string;
+  unit: string; // "thùng" | "kg" | "cái"
+  unitWeightKg: number;
+  category: string;
+  status: ProductStatus;
+  createdAt: string;
+}
+
+/** Hướng giao dịch tồn kho. */
+export type StockDirection = "INBOUND" | "OUTBOUND" | "ADJUST";
+/** Nguồn gốc giao dịch tồn kho. */
+export type StockRefType = "ORDER" | "RETURN" | "MANUAL" | "SEED";
+
+/**
+ * Sổ cái tồn kho — append-only, theo mẫu QuotaTransaction/OdometerEntry.
+ * Tồn kho được derive bằng cách fold qtyDelta (xem getWarehouseStock).
+ */
+export interface StockMovement {
+  id: string;
+  warehouseId: string;
+  productId: string;
+  qtyDelta: number; // có dấu: +nhập / -xuất
+  direction: StockDirection;
+  refType: StockRefType;
+  refId?: string; // orderId / returnId / null
+  weighedKg?: number; // số cân ghi nhận tại thời điểm (nếu có)
+  note?: string;
+  recordedBy: string; // userId
+  at: string; // ISO
+}
+
+/** Dòng hàng (line-item) của đơn — sku/name/unitWeightKg là snapshot tại thời điểm tạo. */
+export interface OrderItem {
+  productId: string;
+  sku: string;
+  name: string;
+  quantity: number;
+  unitWeightKg: number;
 }
 
 // ----- Order -----
@@ -201,6 +269,14 @@ export interface Order {
   pickup: Location;
   dropoff: Location;
   weightKg: number;
+  /** Kho gốc của đơn (origin). Dùng để scoping + điều phối theo kho. */
+  warehouseId?: string;
+  /** Hướng đơn: OUTBOUND = giao đi từ kho (mặc định khi vắng), INBOUND = nhập về kho. */
+  direction?: "OUTBOUND" | "INBOUND";
+  /** Trọng lượng khai báo gốc lúc tạo đơn — bảo toàn qua các lần adjustOrderWeight (ghi đè weightKg). */
+  declaredWeightKg?: number;
+  /** Dòng hàng theo SKU (tuỳ chọn — đơn weight-only cũ vẫn hợp lệ). */
+  items?: OrderItem[];
   /** Trọng lượng hàng thực tế đo lúc điều độ tiếp nhận (kg). Khác weightKg khi có chênh lệch. */
   actualWeightKg?: number;
   /** Ghi chú chi phí phát sinh do chênh lệch trọng lượng. */

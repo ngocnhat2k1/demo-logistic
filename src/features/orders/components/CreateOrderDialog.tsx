@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Camera, AlertTriangle, Plus } from "lucide-react";
 import { toast } from "sonner";
@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/shared/ui/select";
 import { useDataStore } from "@/shared/stores/data";
+import { useUIStore } from "@/shared/stores/ui";
 import { useAuthStore } from "@/features/auth/stores/auth";
 import { checkQuota, quotaInUse, quotaLabel } from "@/features/orders/domain/quota";
 import { formatKg } from "@/shared/utils";
@@ -36,13 +37,25 @@ interface Props {
 export function CreateOrderDialog({ open, onOpenChange, onOpenImport }: Props) {
   const router = useRouter();
   const customers = useDataStore((s) => s.customers);
+  const warehouses = useDataStore((s) => s.warehouses);
   const createOrder = useDataStore((s) => s.createOrder);
   const pushNotification = useDataStore((s) => s.pushNotification);
+  const currentWarehouseId = useUIStore((s) => s.currentWarehouseId);
   const user = useAuthStore((s) => s.currentUser);
 
+  const activeWarehouses = warehouses.filter((w) => w.status === "ACTIVE");
+
   const [customerId, setCustomerId] = useState("");
-  const [pickupKey, setPickupKey] = useState<PlaceKey>("HCM_KHO_TAN_BINH");
+  const [warehouseId, setWarehouseId] = useState("");
   const [dropoffKey, setDropoffKey] = useState<PlaceKey>("BD_DI_AN");
+
+  // Mặc định kho xuất = kho đang chọn (nếu cụ thể), ngược lại để trống → bắt chọn (mode "Tất cả kho").
+  useEffect(() => {
+    if (!open) return;
+    const def =
+      currentWarehouseId && currentWarehouseId !== "ALL" ? currentWarehouseId : "";
+    setWarehouseId((prev) => prev || def);
+  }, [open, currentWarehouseId]);
   const [weightKg, setWeightKg] = useState<number>(500);
   const [description, setDescription] = useState("Hàng tiêu dùng");
   const [notes, setNotes] = useState("");
@@ -58,7 +71,7 @@ export function CreateOrderDialog({ open, onOpenChange, onOpenImport }: Props) {
 
   function resetForm() {
     setCustomerId("");
-    setPickupKey("HCM_KHO_TAN_BINH");
+    setWarehouseId("");
     setDropoffKey("BD_DI_AN");
     setWeightKg(500);
     setDescription("Hàng tiêu dùng");
@@ -83,16 +96,21 @@ export function CreateOrderDialog({ open, onOpenChange, onOpenImport }: Props) {
       toast.error(quotaCheck?.reason || "Vượt hạn mức");
       return;
     }
-    const pickup = PLACES[pickupKey];
+    const wh = activeWarehouses.find((w) => w.id === warehouseId);
+    if (!wh) {
+      toast.error("Vui lòng chọn kho xuất hàng");
+      return;
+    }
     const dropoff = PLACES[dropoffKey];
     const o = createOrder({
       customerId: customer.id,
+      warehouseId: wh.id,
       pickup: {
-        address: pickup.name,
-        lat: pickup.lat,
-        lng: pickup.lng,
-        contactName: "Kho",
-        contactPhone: "0900000000",
+        address: wh.location.address,
+        lat: wh.location.lat,
+        lng: wh.location.lng,
+        contactName: wh.contactName ?? "Kho",
+        contactPhone: wh.contactPhone ?? "0900000000",
       },
       dropoff: {
         address: dropoff.name,
@@ -179,18 +197,15 @@ export function CreateOrderDialog({ open, onOpenChange, onOpenImport }: Props) {
             </div>
 
             <div className="space-y-1.5">
-              <Label>Điểm lấy hàng *</Label>
-              <Select
-                value={pickupKey}
-                onValueChange={(v) => setPickupKey(v as PlaceKey)}
-              >
+              <Label>Kho xuất hàng *</Label>
+              <Select value={warehouseId} onValueChange={setWarehouseId}>
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Chọn kho" />
                 </SelectTrigger>
                 <SelectContent>
-                  {(Object.keys(PLACES) as PlaceKey[]).map((k) => (
-                    <SelectItem key={k} value={k}>
-                      {PLACES[k].name}
+                  {activeWarehouses.map((w) => (
+                    <SelectItem key={w.id} value={w.id}>
+                      {w.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -300,7 +315,7 @@ export function CreateOrderDialog({ open, onOpenChange, onOpenImport }: Props) {
             </Button>
             <Button
               onClick={submit}
-              disabled={!customerId || (!quotaCheck?.ok && !override)}
+              disabled={!customerId || !warehouseId || (!quotaCheck?.ok && !override)}
             >
               <Plus className="h-4 w-4" /> Tạo đơn
             </Button>

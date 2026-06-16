@@ -6,7 +6,7 @@ import { Button } from "@/shared/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/shared/ui/tabs";
 import { useDataStore } from "@/shared/stores/data";
 import { useParams, useRouter } from "next/navigation";
-import { ArrowLeft, MapPin, Package, User as UserIcon, X, Scissors, Pencil, AlertTriangle } from "lucide-react";
+import { ArrowLeft, MapPin, Package, User as UserIcon, X, Scissors, Pencil, AlertTriangle, Printer, Warehouse as WarehouseIcon } from "lucide-react";
 import { StatusBadge } from "@/features/orders/components/StatusBadge";
 import { format } from "date-fns";
 import { vi } from "date-fns/locale";
@@ -20,6 +20,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Input, Label } from "@/shared/ui/input";
 import { EditOrderInfoDialog } from "@/features/orders/components/EditOrderInfoDialog";
 import { OrderRouteMap } from "@/features/orders/components/OrderRouteMap";
+import { OutboundNotePrint } from "@/features/warehouse-ops/components/OutboundNotePrint";
 
 export default function OrderDetailPage() {
   const router = useRouter();
@@ -27,6 +28,7 @@ export default function OrderDetailPage() {
   const order = useDataStore((s) => s.orders.find((o) => o.id === id));
   const customers = useDataStore((s) => s.customers);
   const vehicles = useDataStore((s) => s.vehicles);
+  const warehouses = useDataStore((s) => s.warehouses);
   const cancelOrder = useDataStore((s) => s.cancelOrder);
   const splitOrder = useDataStore((s) => s.splitOrder);
   const user = useAuthStore((s) => s.currentUser);
@@ -48,6 +50,7 @@ export default function OrderDetailPage() {
   }
 
   const customer = customers.find((c) => c.id === order.customerId);
+  const warehouse = warehouses.find((w) => w.id === order.warehouseId);
 
   function doCancel() {
     if (!user || !order) return;
@@ -82,6 +85,9 @@ export default function OrderDetailPage() {
             <ArrowLeft className="h-4 w-4" /> Quay lại
           </Button>
           <div className="flex gap-2">
+            <Button variant="outline" size="sm" onClick={() => window.print()}>
+              <Printer className="h-4 w-4" /> In phiếu xuất kho
+            </Button>
             {canEdit(order.status) && (
               <Button variant="outline" size="sm" onClick={() => setEditOpen(true)}>
                 <Pencil className="h-4 w-4" /> Sửa thông tin
@@ -124,6 +130,9 @@ export default function OrderDetailPage() {
                     (thực tế đã ghi nhận)
                   </span>
                 )}
+              </Field>
+              <Field icon={<WarehouseIcon className="h-4 w-4" />} label="Kho xuất">
+                {warehouse ? warehouse.name : "—"}
               </Field>
               <Field icon={<MapPin className="h-4 w-4" />} label="Điểm lấy">{order.pickup.address}</Field>
               <Field icon={<MapPin className="h-4 w-4" />} label="Điểm giao">{order.dropoff.address}</Field>
@@ -245,6 +254,9 @@ export default function OrderDetailPage() {
       </div>
 
       <EditOrderInfoDialog order={order} open={editOpen} onOpenChange={setEditOpen} />
+
+      {/* Phiếu xuất kho (ẩn trên màn hình, chỉ hiện khi window.print) */}
+      <OutboundNotePrint order={order} />
 
       <Dialog open={splitOpen} onOpenChange={setSplitOpen}>
         <DialogContent>

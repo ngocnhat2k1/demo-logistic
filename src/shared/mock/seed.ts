@@ -2,6 +2,7 @@ import type {
   Carrier,
   Customer,
   Order,
+  OrderItem,
   OrderStatus,
   User,
   Vehicle,
@@ -12,6 +13,9 @@ import type {
   ReturnReasonConfig,
   OdometerEntry,
   LicenseClass,
+  Warehouse,
+  Product,
+  StockMovement,
 } from "@/shared/types";
 import { mulberry32, pick, rangeInt, uid } from "@/shared/utils";
 import { PLACES, buildPolyline, placeToLocation, type PlaceKey } from "./geo";
@@ -63,6 +67,25 @@ const PRODUCT_DESC = [
   "Đồ gỗ nội thất",
   "Thiết bị văn phòng",
   "Phụ tùng cơ khí",
+];
+
+// Catalog SKU dùng để seed sản phẩm + line-item cho đơn (đơn vị + nhóm hàng).
+const PRODUCT_CATALOG: { sku: string; name: string; unit: string; category: string }[] = [
+  { sku: "SKU-TD-01", name: "Thùng hàng tiêu dùng", unit: "thùng", category: "Tiêu dùng" },
+  { sku: "SKU-TD-02", name: "Bột giặt 5kg", unit: "thùng", category: "Tiêu dùng" },
+  { sku: "SKU-XD-01", name: "Bao xi măng 50kg", unit: "bao", category: "Vật liệu XD" },
+  { sku: "SKU-XD-02", name: "Gạch ốp lát (hộp)", unit: "hộp", category: "Vật liệu XD" },
+  { sku: "SKU-XD-03", name: "Sắt thép cuộn", unit: "cuộn", category: "Vật liệu XD" },
+  { sku: "SKU-DT-01", name: "Linh kiện điện tử", unit: "thùng", category: "Điện tử" },
+  { sku: "SKU-DT-02", name: "Bo mạch / module", unit: "khay", category: "Điện tử" },
+  { sku: "SKU-TP-01", name: "Thực phẩm đông lạnh", unit: "thùng", category: "Thực phẩm" },
+  { sku: "SKU-TP-02", name: "Nông sản khô (bao)", unit: "bao", category: "Thực phẩm" },
+  { sku: "SKU-MM-01", name: "Vải may mặc (cuộn)", unit: "cuộn", category: "May mặc" },
+  { sku: "SKU-MM-02", name: "Quần áo đóng kiện", unit: "kiện", category: "May mặc" },
+  { sku: "SKU-HC-01", name: "Hóa chất công nghiệp loại 2", unit: "can", category: "Hóa chất" },
+  { sku: "SKU-NT-01", name: "Đồ gỗ nội thất", unit: "cái", category: "Nội thất" },
+  { sku: "SKU-VP-01", name: "Thiết bị văn phòng", unit: "thùng", category: "Văn phòng" },
+  { sku: "SKU-CK-01", name: "Phụ tùng cơ khí", unit: "thùng", category: "Cơ khí" },
 ];
 
 const VEHICLE_TYPES = ["BOX", "TANK", "CONTAINER", "FLATBED"] as const;
@@ -174,6 +197,29 @@ function makeOdometerHistory(
   return out.reverse();
 }
 
+/** Sinh 1-3 dòng hàng (line-item) minh hoạ cho một đơn từ danh mục product. */
+function makeOrderItems(rng: () => number, products: Product[]): OrderItem[] {
+  if (products.length === 0) return [];
+  const count = rangeInt(rng, 1, 3);
+  const chosen = new Set<string>();
+  const items: OrderItem[] = [];
+  let guard = 0;
+  while (items.length < count && guard < 20) {
+    guard++;
+    const p = pick(rng, products);
+    if (chosen.has(p.id)) continue;
+    chosen.add(p.id);
+    items.push({
+      productId: p.id,
+      sku: p.sku,
+      name: p.name,
+      quantity: rangeInt(rng, 1, 20),
+      unitWeightKg: p.unitWeightKg,
+    });
+  }
+  return items;
+}
+
 export function buildSeed() {
   const rng = mulberry32(20260509);
 
@@ -186,6 +232,64 @@ export function buildSeed() {
     { id: "carrier_bp2", code: "TL", name: "Nhà xe Thiên Long", type: "BACKUP", contactPhone: "02838567890" },
     { id: "carrier_bp3", code: "AN", name: "Vận chuyển An Phát", type: "BACKUP", contactPhone: "02838678901" },
   ];
+
+  // ---- Warehouses (3: 1 MAIN + 2 SATELLITE) ----
+  const nowSeedIso = new Date().toISOString();
+  const warehouses: Warehouse[] = [
+    {
+      id: "wh_main",
+      code: "KHO-TB",
+      name: "Kho Tân Bình (Tổng)",
+      type: "MAIN",
+      status: "ACTIVE",
+      location: placeToLocation("HCM_KHO_TAN_BINH", "Thủ kho Tân Bình", "02838000001"),
+      capacityKg: 500000,
+      contactName: "Thủ kho Tân Bình",
+      contactPhone: "02838000001",
+      operatingHours: "07:00 - 19:00",
+      createdAt: nowSeedIso,
+    },
+    {
+      id: "wh_dian",
+      code: "KHO-DA",
+      name: "Kho Dĩ An",
+      type: "SATELLITE",
+      status: "ACTIVE",
+      location: placeToLocation("BD_DI_AN", "Thủ kho Dĩ An", "02743000002"),
+      capacityKg: 200000,
+      contactName: "Thủ kho Dĩ An",
+      contactPhone: "02743000002",
+      operatingHours: "07:30 - 18:00",
+      createdAt: nowSeedIso,
+    },
+    {
+      id: "wh_bienhoa",
+      code: "KHO-BH",
+      name: "Kho Biên Hòa",
+      type: "SATELLITE",
+      status: "ACTIVE",
+      location: placeToLocation("DN_BIEN_HOA", "Thủ kho Biên Hòa", "02513000003"),
+      capacityKg: 200000,
+      contactName: "Thủ kho Biên Hòa",
+      contactPhone: "02513000003",
+      operatingHours: "07:30 - 18:00",
+      createdAt: nowSeedIso,
+    },
+  ];
+  const MAIN_WAREHOUSE_ID = warehouses[0].id;
+  const warehouseIds = warehouses.map((w) => w.id);
+
+  // ---- Products / SKU ----
+  const products: Product[] = PRODUCT_CATALOG.map((p, i) => ({
+    id: `prod_${i + 1}`,
+    sku: p.sku,
+    name: p.name,
+    unit: p.unit,
+    unitWeightKg: pick(rng, [5, 10, 25, 50]),
+    category: p.category,
+    status: "ACTIVE",
+    createdAt: nowSeedIso,
+  }));
 
   // ---- Vehicles (22, each with embedded driver — 1 vehicle = 1 driver) ----
   const vehicleCarrierMap = [
@@ -231,6 +335,7 @@ export function buildSeed() {
       lastMaintenanceOdometerKm: lastMaint,
       maintenanceIntervalKm: DEFAULT_MAINTENANCE_INTERVAL_KM,
       odometerHistory: makeOdometerHistory(rng, odometerKm, lastMaint, rangeInt(rng, 3, 6)),
+      homeWarehouseId: pick(rng, warehouseIds),
     });
   }
 
@@ -282,15 +387,23 @@ export function buildSeed() {
     const weight = pick(rng, [200, 500, 800, 1200, 2000, 3500, 5000, 8000]);
     const createdAt = new Date(Date.now() - rangeInt(rng, 0, 7) * 86400000 - rangeInt(rng, 0, 23) * 3600000).toISOString();
     const requested = new Date(new Date(createdAt).getTime() + rangeInt(rng, 6, 72) * 3600000).toISOString();
+    // Bias kho MAIN (~60%), còn lại chia đều 2 kho vệ tinh.
+    const whRoll = rng();
+    const warehouseId =
+      whRoll < 0.6 ? warehouseIds[0] : whRoll < 0.8 ? warehouseIds[1] : warehouseIds[2];
 
     const order: Order = {
       id: `order_${i + 1}`,
       code: `DH-${String(i + 1).padStart(4, "0")}`,
       customerId: customer.id,
       status,
+      warehouseId,
+      direction: "OUTBOUND",
       pickup: placeToLocation(pickupKey, "Người gửi", makePhone(rng)),
       dropoff: placeToLocation(dropoffKey, "Người nhận", makePhone(rng)),
       weightKg: weight,
+      declaredWeightKg: weight,
+      items: makeOrderItems(rng, products),
       description: pick(rng, PRODUCT_DESC),
       requestedDeliveryAt: requested,
       assignments: [],
@@ -398,7 +511,7 @@ export function buildSeed() {
   const users: User[] = [
     { id: "user_admin", email: "admin@demo.vn", fullName: "Trần Quản Trị", role: "ADMIN" },
     { id: "user_manager", email: "manager@demo.vn", fullName: "Lê Vận Hành", role: "OPS_MANAGER" },
-    { id: "user_dispatcher", email: "dispatcher@demo.vn", fullName: "Nguyễn Anh Tuấn", role: "DISPATCHER" },
+    { id: "user_dispatcher", email: "dispatcher@demo.vn", fullName: "Nguyễn Anh Tuấn", role: "DISPATCHER", warehouseId: MAIN_WAREHOUSE_ID },
     { id: "user_sales", email: "sales@demo.vn", fullName: "Phạm Mai Hương", role: "SALES" },
     {
       id: "user_customer",
@@ -440,7 +553,36 @@ export function buildSeed() {
     },
   ];
 
-  return { carriers, vehicles, customers, orders, users, notifications, returnReasons: DEFAULT_RETURN_REASONS };
+  // ---- Opening stock: 1 movement INBOUND/SEED cho mỗi (kho × sản phẩm) ----
+  const stockMovements: StockMovement[] = [];
+  for (const w of warehouses) {
+    for (const p of products) {
+      stockMovements.push({
+        id: uid("mv"),
+        warehouseId: w.id,
+        productId: p.id,
+        qtyDelta: rangeInt(rng, 50, 500),
+        direction: "INBOUND",
+        refType: "SEED",
+        note: "Tồn đầu kỳ (seed)",
+        recordedBy: "system",
+        at: nowSeedIso,
+      });
+    }
+  }
+
+  return {
+    carriers,
+    vehicles,
+    customers,
+    orders,
+    users,
+    notifications,
+    returnReasons: DEFAULT_RETURN_REASONS,
+    warehouses,
+    products,
+    stockMovements,
+  };
 }
 
 export type SeedData = ReturnType<typeof buildSeed>;

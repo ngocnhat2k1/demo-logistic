@@ -9,21 +9,25 @@ import { format } from "date-fns";
 import { vi } from "date-fns/locale";
 import { formatKg } from "@/shared/utils";
 import { Button } from "@/shared/ui/button";
+import { useScopedReturns, useScopedOrders } from "@/shared/hooks/useScopedData";
+import { useAuthStore } from "@/features/auth/stores/auth";
 import { toast } from "sonner";
 
-function completeReturn(id: string, code: string) {
-  useDataStore.setState((s) => ({
-    returns: s.returns.map((x) =>
-      x.id === id ? { ...x, status: "COMPLETED", completedAt: new Date().toISOString() } : x,
-    ),
-  }));
-  toast.success(`Đã hoàn tất trả hàng ${code}`);
-}
-
 export default function ReturnsPage() {
-  const returns = useDataStore((s) => s.returns);
-  const orders = useDataStore((s) => s.orders);
+  const returns = useScopedReturns();
+  const orders = useScopedOrders();
   const customers = useDataStore((s) => s.customers);
+  const receiveReturnToWarehouse = useDataStore((s) => s.receiveReturnToWarehouse);
+  const actorId = useAuthStore((s) => s.currentUser?.id ?? "system");
+
+  function completeReturn(id: string, code: string) {
+    const res = receiveReturnToWarehouse(id, actorId);
+    if (!res.ok) {
+      toast.error(res.reason ?? "Không thể nhập kho hàng trả");
+      return;
+    }
+    toast.success(`Đã nhập kho hàng trả ${code} — tồn kho đã cập nhật`);
+  }
 
   return (
     <>
@@ -98,7 +102,7 @@ export default function ReturnsPage() {
                       className="w-full"
                       onClick={() => completeReturn(r.id, r.code)}
                     >
-                      Hoàn tất
+                      Nhập kho trả
                     </Button>
                   )}
                 </CardContent>
