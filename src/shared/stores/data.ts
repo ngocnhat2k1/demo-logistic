@@ -28,6 +28,8 @@ import type {
 import { buildSeed } from "@/shared/mock/seed";
 import { uid } from "@/shared/utils";
 import { buildPolyline } from "@/shared/mock/geo";
+import { suggestVehicles } from "@/features/dispatch/domain/dispatchHeuristic";
+import { AUTO_DISPATCH_MIN_SCORE } from "@/features/dispatch/constants";
 
 const ODOMETER_HISTORY_CAP = 30;
 const DEFAULT_MAINTENANCE_INTERVAL_KM = 10000;
@@ -119,6 +121,25 @@ interface DataState {
   cancelOrder: (id: string, actorId: string) => void;
   setOrderStatus: (id: string, status: OrderStatus, actorId: string, payload?: Record<string, unknown>) => void;
   assignOrderToVehicle: (orderId: string, vehicleId: string, actorId: string, weightKg?: number, partLabel?: string) => DispatchAssignment | null;
+  /**
+   * Mức 3 — AI auto điều phối: tự chọn xe NCC liên kết tốt nhất (điểm >= AUTO_DISPATCH_MIN_SCORE)
+   * và phân ngay. Thất bại → set order.dispatchFallback (rớt về điều phối viên, mức 2/1).
+   */
+  autoDispatchOrder: (
+    orderId: string,
+    actorId: string,
+    opts?: { excludeVehicleIds?: string[]; reassign?: boolean }
+  ) => { ok: boolean; mode: "AUTO" | "SUGGEST"; vehicleId?: string; reason?: string };
+  /**
+   * Tài xế cảnh báo sự cố (thay cho "từ chối"): nhả phân công + tự động phân lại bằng AI cho xe khác.
+   * Hết xe phù hợp → đơn rớt về điều phối viên phân tay (dispatchFallback.fromWarning).
+   */
+  raiseDispatchWarning: (
+    orderId: string,
+    assignmentId: string,
+    driverId: string,
+    reason: string
+  ) => { ok: boolean; mode?: "AUTO" | "SUGGEST"; reason?: string };
   /** Step 1: chọn NCC cho đơn. Nếu BACKUP → đơn chuyển sang PENDING_SUPERVISOR_REVIEW. */
   submitOrderCarrier: (orderId: string, carrierId: string, actorId: string) => { ok: boolean; needsReview: boolean; reason?: string };
   /** OPS_MANAGER duyệt đơn dùng NCC dự phòng + chọn xe luôn. */
@@ -626,7 +647,11 @@ export const useDataStore = create<DataState>()(
         };
         set({ orders: [order, ...orders] });
         get().reserveQuota(input.customerId, input.weightKg, order.id, "user");
-        return order;
+        // Mức 3 — AI auto điều phối ngay khi có đơn mới (đơn đang chờ phân).
+        if (order.status === "NEW" || order.status === "PENDING_DISPATCH") {
+          get().autoDispatchOrder(order.id, "system");
+        }
+        return get().orders.find((o) => o.id === order.id) ?? order;
       },
 
       updateOrder: (id, patch) => {
@@ -961,6 +986,8 @@ export const useDataStore = create<DataState>()(
                   ...o,
                   status: "PENDING_ACCEPT",
                   updatedAt: nowIso(),
+                  // Đã phân được xe → xoá cờ rớt điều phối (mức 2/1) nếu có.
+                  dispatchFallback: undefined,
                   assignments: [...o.assignments, assignment],
                   events: [
                     ...o.events,
@@ -1060,6 +1087,198 @@ export const useDataStore = create<DataState>()(
         });
 
         return { ok: true, needsReview: true };
+      },
+
+      autoDispatchOrder: (orderId, actorId, opts) => {
+        const order = get().orders.find((o) => o.id === orderId);
+        if (!order) return { ok: false, mode: "SUGGEST", reason: "Không tìm thấy đơn" };
+        if (order.status !== "NEW" && order.status !== "PENDING_DISPATCH") {
+          return { ok: false, mode: "SUGGEST", reason: "Đơn không ở trạng thái chờ phân" };
+        }
+
+        const exclude = new Set(opts?.excludeVehicleIds ?? []);
+        // Chỉ NCC liên kết (INTERNAL) được auto; NCC dự phòng (BACKUP) cần giám sát duyệt → rớt mức 2.
+        const internalCarrierIds = new Set(
+          get().carriers.filter((c) => c.type !== "BACKUP").map((c) => c.id)
+        );
+        const pool = get().vehicles.filter(
+          (v) => !!v.carrierId && internalCarrierIds.has(v.carrierId) && !exclude.has(v.id)
+        );
+        const suggestions = suggestVehicles({ order, vehicles: pool });
+        const top = suggestions[0];
+
+        // Mức 3 — đủ tin cậy → tự phân ngay.
+        if (top && top.score >= AUTO_DISPATCH_MIN_SCORE) {
+          const vehicle = get().vehicles.find((v) => v.id === top.vehicleId);
+          if (vehicle?.carrierId) {
+            const carrierRes = get().submitOrderCarrier(orderId, vehicle.carrierId, actorId);
+            if (carrierRes.ok && !carrierRes.needsReview) {
+              const assignment = get().assignOrderToVehicle(orderId, vehicle.id, actorId);
+              if (assignment) {
+                const at = nowIso();
+                const evtType = opts?.reassign ? "DISPATCH_REASSIGNED" : "AUTO_DISPATCHED";
+                set({
+                  orders: get().orders.map((o) =>
+                    o.id === orderId
+                      ? {
+                          ...o,
+                          updatedAt: at,
+                          events: [
+                            ...o.events,
+                            {
+                              id: uid("evt"),
+                              type: evtType,
+                              payload: { vehicleId: vehicle.id, score: top.score, plateNumber: vehicle.plateNumber },
+                              actorId,
+                              at,
+                            },
+                          ],
+                        }
+                      : o
+                  ),
+                });
+                get().pushNotification({
+                  type: "ORDER_DISPATCHED",
+                  severity: "info",
+                  title: opts?.reassign ? "AI đã phân lại xe" : "AI tự động phân xe",
+                  message: `${order.code} → ${vehicle.plateNumber} (AI ${top.score}/100)`,
+                  targetRoles: ["DRIVER", "DISPATCHER", "OPS_MANAGER"],
+                  data: { orderId, vehicleId: vehicle.id },
+                });
+                return { ok: true, mode: "AUTO", vehicleId: vehicle.id };
+              }
+            }
+          }
+        }
+
+        // Mức 2 — auto không phân được → set cờ rớt để điều phối viên xử lý.
+        const reason = top
+          ? `AI: xe phù hợp nhất chỉ đạt ${top.score}/100 — cần điều phối viên xác nhận`
+          : "AI chưa tìm được xe liên kết phù hợp (hết xe rảnh / đủ tải)";
+        const at = nowIso();
+        set({
+          orders: get().orders.map((o) =>
+            o.id === orderId
+              ? {
+                  ...o,
+                  status: o.status === "NEW" ? "PENDING_DISPATCH" : o.status,
+                  updatedAt: at,
+                  dispatchFallback: {
+                    reason,
+                    suggestedVehicleIds: suggestions.map((s) => s.vehicleId),
+                    fromWarning: opts?.reassign || undefined,
+                    at,
+                  },
+                  events: [
+                    ...o.events,
+                    {
+                      id: uid("evt"),
+                      type: "AUTO_DISPATCH_FAILED",
+                      payload: { reason, topScore: top?.score },
+                      actorId,
+                      at,
+                    },
+                  ],
+                }
+              : o
+          ),
+        });
+        get().pushNotification({
+          type: "GENERIC",
+          severity: "warning",
+          title: "Cần điều phối viên phân xe",
+          message: `${order.code}: ${reason}`,
+          targetRoles: ["DISPATCHER", "OPS_MANAGER"],
+          data: { orderId },
+        });
+        return { ok: false, mode: "SUGGEST", reason };
+      },
+
+      raiseDispatchWarning: (orderId, assignmentId, driverId, reason) => {
+        const trimmed = (reason ?? "").trim();
+        if (!trimmed) return { ok: false, reason: "Vui lòng nhập lý do cảnh báo" };
+
+        const order = get().orders.find((o) => o.id === orderId);
+        if (!order) return { ok: false, reason: "Không tìm thấy đơn" };
+        const a = order.assignments.find((x) => x.id === assignmentId);
+        if (!a) return { ok: false, reason: "Không tìm thấy phân công" };
+        if (a.status !== "PENDING_ACCEPT" && a.status !== "ASSIGNED") {
+          return { ok: false, reason: "Chỉ cảnh báo được đơn chưa lấy hàng" };
+        }
+
+        const at = nowIso();
+        const warnedVehicleId = a.vehicleId;
+        const remaining = order.assignments.filter(
+          (x) => x.id !== assignmentId && x.status !== "REJECTED"
+        );
+
+        // Nhả phân công + trả xe về AVAILABLE (tái dùng logic của rejectAssignment).
+        set({
+          orders: get().orders.map((o) =>
+            o.id === orderId
+              ? {
+                  ...o,
+                  status: remaining.length === 0 ? "PENDING_DISPATCH" : o.status,
+                  updatedAt: at,
+                  warningCount: (o.warningCount ?? 0) + 1,
+                  assignments: o.assignments.filter((x) => x.id !== assignmentId),
+                  events: [
+                    ...o.events,
+                    {
+                      id: uid("evt"),
+                      type: "DRIVER_WARNING",
+                      payload: { assignmentId, reason: trimmed, vehicleId: warnedVehicleId },
+                      actorId: driverId,
+                      at,
+                    },
+                  ],
+                }
+              : o
+          ),
+          vehicles: get().vehicles.map((v) => {
+            if (v.id !== warnedVehicleId) return v;
+            const stillBusy = get().orders.some((o) =>
+              o.assignments.some(
+                (x) =>
+                  x.vehicleId === v.id &&
+                  x.id !== assignmentId &&
+                  (x.status === "PENDING_ACCEPT" ||
+                    x.status === "ASSIGNED" ||
+                    x.status === "PICKED_UP" ||
+                    x.status === "IN_TRANSIT")
+              )
+            );
+            const wasActive = v.activeAssignmentId === assignmentId;
+            if (!stillBusy) {
+              return {
+                ...v,
+                status: "AVAILABLE",
+                activeAssignmentId: undefined,
+                routePolyline: undefined,
+                routeProgress: undefined,
+              };
+            }
+            return wasActive
+              ? { ...v, activeAssignmentId: undefined, routePolyline: undefined, routeProgress: undefined }
+              : v;
+          }),
+        });
+
+        get().pushNotification({
+          type: "DRIVER_WARNING",
+          severity: "warning",
+          title: "Tài xế cảnh báo sự cố",
+          message: `Đơn ${order.code}: ${trimmed} — hệ thống đang phân lại xe.`,
+          targetRoles: ["DISPATCHER", "OPS_MANAGER"],
+          data: { orderId, vehicleId: warnedVehicleId },
+        });
+
+        // Tự động phân lại bằng AI cho xe khác (loại xe vừa cảnh báo). Hết xe phù hợp → rớt mức 1.
+        const res = get().autoDispatchOrder(orderId, "system", {
+          excludeVehicleIds: [warnedVehicleId],
+          reassign: true,
+        });
+        return { ok: true, mode: res.mode, reason: res.reason };
       },
 
       approveSupervisorReview: (orderId, vehicleId, actorId, weightKg) => {

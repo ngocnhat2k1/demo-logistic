@@ -226,6 +226,20 @@ export interface Order {
   carrierId?: string;
   /** Trạng thái duyệt giám sát khu vực (chỉ tồn tại khi NCC là BACKUP). */
   supervisorReview?: SupervisorReview;
+  /**
+   * Khi AI auto điều phối (mức 3) KHÔNG phân được, đơn rớt về điều phối viên (mức 2/1).
+   * Set khi auto thất bại, clear khi phân xe thành công.
+   */
+  dispatchFallback?: {
+    reason: string;
+    /** Top gợi ý AI sẵn sàng cho điều phối viên chọn (mức 2). */
+    suggestedVehicleIds: string[];
+    /** true nếu phát sinh do tài xế cảnh báo sự cố (mức 1). */
+    fromWarning?: boolean;
+    at: string;
+  };
+  /** Số lần tài xế đã cảnh báo sự cố trên đơn này. */
+  warningCount?: number;
 }
 
 // ----- Return -----
@@ -265,6 +279,7 @@ export type NotificationType =
   | "ORDER_DELIVERED"
   | "ORDER_FAILED"
   | "ASSIGNMENT_REJECTED"
+  | "DRIVER_WARNING"
   | "QUOTA_WARNING"
   | "EMERGENCY_SOS"
   | "ETA_UPDATE"

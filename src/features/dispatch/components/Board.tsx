@@ -393,18 +393,26 @@ export function DispatchBoard() {
                                     )}
                                 </div>
                                 {ordersTab === "pending" && (
-                                    <Button
-                                        size="sm"
-                                        className="w-full h-8"
-                                        disabled={
-                                            pendingOrders.length === 0 ||
-                                            availableVehicles.length === 0
-                                        }
-                                        onClick={() => setAutoOpen(true)}
-                                    >
-                                        <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-                                        AI tự động phân tất cả
-                                    </Button>
+                                    <>
+                                        <div className="flex items-center gap-1.5 rounded-md bg-primary/5 px-2 py-1 text-[10px] text-primary">
+                                            <Sparkles className="h-3 w-3 shrink-0" />
+                                            <span className="leading-snug">
+                                                Tự động điều phối: BẬT — đơn mới được AI phân ngay; mục này chỉ còn đơn cần xử lý tay.
+                                            </span>
+                                        </div>
+                                        <Button
+                                            size="sm"
+                                            className="w-full h-8"
+                                            disabled={
+                                                pendingOrders.length === 0 ||
+                                                availableVehicles.length === 0
+                                            }
+                                            onClick={() => setAutoOpen(true)}
+                                        >
+                                            <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                                            Chạy lại AI cho đơn còn lại
+                                        </Button>
+                                    </>
                                 )}
                             </div>
                             <CardContent className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -661,17 +669,25 @@ export function DispatchBoard() {
                                 )}
                             </div>
                             {ordersTab === "pending" && (
-                                <Button
-                                    size="sm"
-                                    className="w-full h-8"
-                                    disabled={
-                                        pendingOrders.length === 0 || availableVehicles.length === 0
-                                    }
-                                    onClick={() => setAutoOpen(true)}
-                                >
-                                    <Sparkles className="h-3.5 w-3.5 mr-1.5" />
-                                    AI tự động phân tất cả
-                                </Button>
+                                <>
+                                    <div className="flex items-center gap-1.5 rounded-md bg-primary/5 px-2 py-1 text-[10px] text-primary">
+                                        <Sparkles className="h-3 w-3 shrink-0" />
+                                        <span className="leading-snug">
+                                            Tự động điều phối: BẬT — đơn mới được AI phân ngay; mục này chỉ còn đơn cần xử lý tay.
+                                        </span>
+                                    </div>
+                                    <Button
+                                        size="sm"
+                                        className="w-full h-8"
+                                        disabled={
+                                            pendingOrders.length === 0 || availableVehicles.length === 0
+                                        }
+                                        onClick={() => setAutoOpen(true)}
+                                    >
+                                        <Sparkles className="h-3.5 w-3.5 mr-1.5" />
+                                        Chạy lại AI cho đơn còn lại
+                                    </Button>
+                                </>
                             )}
                         </CardHeader>
                         <CardContent className="flex-1 overflow-y-auto space-y-2 p-3 pt-1">
@@ -972,6 +988,9 @@ function AssignedOrderCard({
         IN_TRANSIT: { text: "Đang giao", tone: "default" },
     };
     const s = statusLabel[order.status] ?? { text: order.status, tone: "default" as const };
+    const autoAssigned = order.events.some(
+        (e) => e.type === "AUTO_DISPATCHED" || e.type === "DISPATCH_REASSIGNED"
+    );
 
     return (
         <div className="rounded-md border bg-card p-2.5 text-xs space-y-1.5">
@@ -988,9 +1007,16 @@ function AssignedOrderCard({
                         <MapPin className="inline h-3 w-3" /> {order.dropoff.address}
                     </p>
                 </div>
-                <Badge variant={s.tone} className="shrink-0 text-[10px]">
-                    {s.text}
-                </Badge>
+                <div className="flex flex-col items-end gap-1 shrink-0">
+                    <Badge variant={s.tone} className="text-[10px]">
+                        {s.text}
+                    </Badge>
+                    {autoAssigned && order.status === "PENDING_ACCEPT" && (
+                        <span className="inline-flex items-center gap-0.5 rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] font-medium text-primary">
+                            <Sparkles className="h-2.5 w-2.5" /> AI tự phân
+                        </span>
+                    )}
+                </div>
             </div>
             {vehicle && (
                 <div className="flex items-center justify-between rounded bg-muted/50 px-2 py-1">
@@ -1043,6 +1069,22 @@ function TabButton({
     );
 }
 
+/** Cờ "rớt điều phối" (mức 2/1) khi AI auto không phân được — hiện badge + lý do. */
+function DispatchFallbackBadge({ order }: { order: Order }) {
+    const fb = order.dispatchFallback;
+    if (!fb) return null;
+    const label = fb.fromWarning ? "Tài xế cảnh báo — cần phân lại" : "AI chưa phân được xe";
+    return (
+        <div
+            title={fb.reason}
+            className="flex items-start gap-1 rounded-md border border-warning bg-warning/10 px-2 py-1 text-[10px] text-warning"
+        >
+            <AlertTriangle className="h-3 w-3 mt-px shrink-0" />
+            <span className="leading-snug">{label}</span>
+        </div>
+    );
+}
+
 function MobileOrderRow({
     order,
     customerName,
@@ -1054,6 +1096,7 @@ function MobileOrderRow({
     onAssign: () => void;
     onSuggest: () => void;
 }) {
+    const fb = order.dispatchFallback;
     return (
         <div className="rounded-lg border bg-card p-3 space-y-2">
             <div className="flex items-start justify-between gap-2">
@@ -1075,10 +1118,15 @@ function MobileOrderRow({
                     {formatKg(order.weightKg)}
                 </Badge>
             </div>
+            <DispatchFallbackBadge order={order} />
             <div className="flex gap-2">
                 <button
                     onClick={onSuggest}
-                    className="flex-1 flex items-center justify-center gap-1 rounded-md bg-primary/10 px-3 py-2 text-xs font-medium text-primary hover:bg-primary/20"
+                    className={`flex-1 flex items-center justify-center gap-1 rounded-md px-3 py-2 text-xs font-medium ${
+                        fb
+                            ? "bg-warning/15 text-warning ring-1 ring-warning hover:bg-warning/25"
+                            : "bg-primary/10 text-primary hover:bg-primary/20"
+                    }`}
                 >
                     <Sparkles className="h-3.5 w-3.5" /> AI gợi ý
                 </button>
@@ -1110,13 +1158,18 @@ function DraggableOrderCard({
     const style = transform
         ? { transform: `translate3d(${transform.x}px, ${transform.y}px, 0)`, zIndex: 50 }
         : undefined;
+    const fb = order.dispatchFallback;
 
     return (
         <div
             ref={setNodeRef}
             style={style}
             className={`rounded-md border bg-card p-2.5 text-xs cursor-grab transition ${
-                isDragging ? "shadow-lg" : "hover:border-primary hover:shadow-sm"
+                isDragging
+                    ? "shadow-lg"
+                    : fb
+                      ? "border-warning/60 hover:shadow-sm"
+                      : "hover:border-primary hover:shadow-sm"
             }`}
             {...attributes}
             {...listeners}
@@ -1140,13 +1193,22 @@ function DraggableOrderCard({
                     {formatKg(order.weightKg)}
                 </Badge>
             </div>
+            {fb && (
+                <div className="mt-1.5">
+                    <DispatchFallbackBadge order={order} />
+                </div>
+            )}
             <div className="mt-2 grid grid-cols-2 gap-1.5">
                 <button
                     onClick={(e) => {
                         e.stopPropagation();
                         onSuggest();
                     }}
-                    className="flex items-center justify-center gap-1 rounded-md bg-primary/10 px-2 py-1 text-[10px] font-medium text-primary hover:bg-primary/20"
+                    className={`flex items-center justify-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium ${
+                        fb
+                            ? "bg-warning/15 text-warning ring-1 ring-warning hover:bg-warning/25"
+                            : "bg-primary/10 text-primary hover:bg-primary/20"
+                    }`}
                     onPointerDown={(e) => e.stopPropagation()}
                 >
                     <Sparkles className="h-3 w-3" /> AI gợi ý

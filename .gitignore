@@ -10,3 +10,6 @@ build
 .idea
 .vscode
 tsconfig.tsbuildinfo
+
+# Test/automation artifacts
+.playwright-mcp/

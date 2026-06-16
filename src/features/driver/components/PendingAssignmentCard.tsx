@@ -12,7 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/shared/ui/dialog";
-import { MapPin, CheckCircle2, XCircle } from "lucide-react";
+import { MapPin, CheckCircle2, AlertTriangle } from "lucide-react";
 import { formatKg } from "@/shared/utils";
 import { toast } from "sonner";
 import type { Order, DispatchAssignment } from "@/shared/types";
@@ -22,13 +22,20 @@ interface PendingAssignmentCardProps {
   assignment: DispatchAssignment;
 }
 
+const WARNING_PRESETS = [
+  "Xe gặp sự cố kỹ thuật",
+  "Không đúng tuyến đường / quá xa",
+  "Đã hết ca làm việc",
+  "Hàng vượt quá khả năng chở",
+];
+
 export function PendingAssignmentCard({ order, assignment }: PendingAssignmentCardProps) {
   const user = useAuthStore((s) => s.currentUser);
   const customers = useDataStore((s) => s.customers);
   const acceptAssignment = useDataStore((s) => s.acceptAssignment);
-  const rejectAssignment = useDataStore((s) => s.rejectAssignment);
+  const raiseDispatchWarning = useDataStore((s) => s.raiseDispatchWarning);
 
-  const [rejectOpen, setRejectOpen] = useState(false);
+  const [warnOpen, setWarnOpen] = useState(false);
   const [reason, setReason] = useState("");
   const customer = customers.find((c) => c.id === order.customerId);
 
@@ -42,15 +49,19 @@ export function PendingAssignmentCard({ order, assignment }: PendingAssignmentCa
     toast.success(`Đã nhận đơn ${order.code}`);
   }
 
-  function handleConfirmReject() {
+  function handleConfirmWarning() {
     if (!user) return;
-    const r = rejectAssignment(order.id, assignment.id, user.id, reason);
+    const r = raiseDispatchWarning(order.id, assignment.id, user.id, reason);
     if (!r.ok) {
-      toast.error(r.reason ?? "Không thể từ chối");
+      toast.error(r.reason ?? "Không thể gửi cảnh báo");
       return;
     }
-    toast.success(`Đã từ chối đơn ${order.code}`);
-    setRejectOpen(false);
+    toast.success(
+      r.mode === "AUTO"
+        ? `Đã gửi cảnh báo — hệ thống đã phân lại xe cho đơn ${order.code}`
+        : `Đã gửi cảnh báo đơn ${order.code} — điều độ sẽ phân lại xe`
+    );
+    setWarnOpen(false);
     setReason("");
   }
 
@@ -76,8 +87,12 @@ export function PendingAssignmentCard({ order, assignment }: PendingAssignmentCa
         </div>
         <p className="text-sm font-semibold">{formatKg(assignment.weightKg)}</p>
         <div className="grid grid-cols-2 gap-2 pt-1">
-          <Button variant="outline" onClick={() => setRejectOpen(true)}>
-            <XCircle className="h-4 w-4 mr-1" /> Từ chối
+          <Button
+            variant="outline"
+            className="border-warning text-warning hover:bg-warning/10"
+            onClick={() => setWarnOpen(true)}
+          >
+            <AlertTriangle className="h-4 w-4 mr-1" /> Cảnh báo
           </Button>
           <Button onClick={handleAccept}>
             <CheckCircle2 className="h-4 w-4 mr-1" /> Đồng ý
@@ -85,36 +100,49 @@ export function PendingAssignmentCard({ order, assignment }: PendingAssignmentCa
         </div>
       </CardContent>
 
-      <Dialog open={rejectOpen} onOpenChange={setRejectOpen}>
+      <Dialog open={warnOpen} onOpenChange={setWarnOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Từ chối đơn {order.code}</DialogTitle>
+            <DialogTitle>Cảnh báo sự cố đơn {order.code}</DialogTitle>
           </DialogHeader>
-          <div className="space-y-2">
+          <div className="space-y-3">
+            <p className="text-xs text-muted-foreground">
+              Bạn không thể từ chối đơn. Hãy báo sự cố — hệ thống sẽ tự động phân lại xe khác
+              hoặc chuyển điều độ xử lý.
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {WARNING_PRESETS.map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setReason(p)}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] ${
+                    reason === p
+                      ? "border-warning bg-warning/10 text-warning"
+                      : "border-input text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
             <label className="text-sm font-medium">
-              Lý do từ chối <span className="text-destructive">*</span>
+              Lý do cảnh báo <span className="text-destructive">*</span>
             </label>
             <textarea
               value={reason}
               onChange={(e) => setReason(e.target.value)}
-              rows={4}
+              rows={3}
               placeholder="Ví dụ: xe gặp sự cố, không đúng tuyến đường, đã hết ca làm việc..."
               className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
             />
-            <p className="text-xs text-muted-foreground">
-              Lý do sẽ được gửi về điều độ để xử lý tiếp.
-            </p>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRejectOpen(false)}>
+            <Button variant="outline" onClick={() => setWarnOpen(false)}>
               Huỷ
             </Button>
-            <Button
-              variant="destructive"
-              onClick={handleConfirmReject}
-              disabled={!reason.trim()}
-            >
-              Xác nhận từ chối
+            <Button variant="warning" onClick={handleConfirmWarning} disabled={!reason.trim()}>
+              <AlertTriangle className="h-4 w-4 mr-1" /> Gửi cảnh báo
             </Button>
           </DialogFooter>
         </DialogContent>
