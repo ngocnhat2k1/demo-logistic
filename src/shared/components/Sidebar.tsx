@@ -274,7 +274,7 @@ function SidebarBody({
                 )}
             </div>
 
-            <nav className="flex-1 p-2 space-y-1 overflow-y-auto">
+            <nav className="flex-1 p-2 space-y-1 overflow-y-auto scrollbar-hide">
                 <p className="flex items-center gap-2 px-3 py-1.5 text-xs font-bold uppercase tracking-wide text-primary">
                     <FaRoad className="h-3.5 w-3.5" aria-hidden />
                     Tratimex LOGISTIC
@@ -303,7 +303,7 @@ function SidebarBody({
                     const isOpen = !collapsed.has(group.label);
                     const groupActive = group.items.some((it) => isItemActive(path, it.href));
                     const groupBadge = group.items.reduce(
-                        (sum, it) => sum + (it.badgeKey ? badgeCounts[it.badgeKey] ?? 0 : 0),
+                        (sum, it) => sum + (it.badgeKey ? (badgeCounts[it.badgeKey] ?? 0) : 0),
                         0,
                     );
                     return (
@@ -339,7 +339,7 @@ function SidebarBody({
                                     {group.items.map((item) => {
                                         const active = isItemActive(path, item.href);
                                         const count = item.badgeKey
-                                            ? badgeCounts[item.badgeKey] ?? 0
+                                            ? (badgeCounts[item.badgeKey] ?? 0)
                                             : 0;
                                         const ItemIcon = item.icon;
                                         return (
@@ -449,7 +449,7 @@ export function Sidebar() {
     return (
         <>
             {/* Desktop sidebar */}
-            <aside className="hidden md:flex w-72 shrink-0 flex-col border-r bg-card">
+            <aside className="hidden md:flex w-[270px] shrink-0 flex-col border-r bg-card">
                 <SidebarBody
                     role={user.role}
                     fullName={user.fullName}

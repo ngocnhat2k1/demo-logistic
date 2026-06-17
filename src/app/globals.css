@@ -43,6 +43,15 @@
     }
 }
 
+/* Ẩn thanh scroll nhưng vẫn cuộn được (sidebar, v.v.) */
+.scrollbar-hide {
+    -ms-overflow-style: none; /* IE/Edge */
+    scrollbar-width: none; /* Firefox */
+}
+.scrollbar-hide::-webkit-scrollbar {
+    display: none; /* Chrome/Safari */
+}
+
 .leaflet-container {
     height: 100%;
     width: 100%;

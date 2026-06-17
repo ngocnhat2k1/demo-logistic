@@ -10,6 +10,7 @@ import { vi } from "date-fns/locale";
 import { Bar, BarChart, CartesianGrid, Line, LineChart, Tooltip, XAxis, YAxis, ResponsiveContainer } from "recharts";
 import { quotaLevelColor } from "@/features/orders/domain/quota";
 import { Progress } from "@/shared/ui/progress";
+import { DashboardInsightStrip } from "@/features/copilot/components/DashboardInsightStrip";
 import Link from "next/link";
 
 export default function DashboardPage() {
@@ -82,6 +83,8 @@ export default function DashboardPage() {
           <KpiCard title="Đã giao thành công" value={delivered} icon={CheckCircle2} accent="ok" href="/orders?status=DELIVERED" />
           <KpiCard title="Cần xử lý" value={failed} icon={AlertTriangle} accent="danger" href="/returns" />
         </div>
+
+        <DashboardInsightStrip />
 
         <div className="grid gap-4 grid-cols-1 lg:grid-cols-3">
           <Card className="lg:col-span-2 flex flex-col">

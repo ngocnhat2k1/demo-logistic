@@ -18,6 +18,8 @@ import { suggestVehicles } from "@/features/dispatch/domain/dispatchHeuristic";
 import { useDataStore } from "@/shared/stores/data";
 import { useAuthStore } from "@/features/auth/stores/auth";
 import { formatKg } from "@/shared/utils";
+import { AUTO_DISPATCH_MIN_SCORE } from "@/features/dispatch/constants";
+import { STREAM_ROW_MS } from "@/shared/ai/constants";
 import type { Order, Vehicle, Warehouse } from "@/shared/types";
 
 interface Props {
@@ -82,12 +84,28 @@ export function AutoDispatchPreviewModal({ orders, open, onClose }: Props) {
   );
 
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  // Streaming reveal: tiết lộ dần từng phương án để tạo cảm giác "AI đang suy nghĩ".
+  const [revealed, setRevealed] = useState(0);
 
   useEffect(() => {
     if (open) setExcluded(new Set());
   }, [open]);
 
   const matched = plan.filter((r) => r.vehicle);
+
+  useEffect(() => {
+    if (!open) return;
+    setRevealed(0);
+    if (matched.length === 0) return;
+    let i = 0;
+    const id = setInterval(() => {
+      i += 1;
+      setRevealed(i);
+      if (i >= matched.length) clearInterval(id);
+    }, STREAM_ROW_MS);
+    return () => clearInterval(id);
+  }, [open, matched.length]);
+
   const unmatched = plan.filter((r) => !r.vehicle);
   const selectedCount = matched.filter((r) => !excluded.has(r.order.id)).length;
 
@@ -163,7 +181,12 @@ export function AutoDispatchPreviewModal({ orders, open, onClose }: Props) {
               <p className="text-xs uppercase tracking-wider text-muted-foreground font-semibold">
                 Phương án ({matched.length})
               </p>
-              {matched.map((row) => {
+              {revealed < matched.length && (
+                <div className="flex items-center gap-2 rounded-md bg-primary/5 px-2 py-1.5 text-[11px] text-primary">
+                  <Sparkles className="h-3.5 w-3.5 animate-pulse" /> AI đang tính phương án… ({revealed}/{matched.length})
+                </div>
+              )}
+              {matched.slice(0, revealed).map((row) => {
                 const isOff = excluded.has(row.order.id);
                 return (
                   <label
@@ -204,6 +227,12 @@ export function AutoDispatchPreviewModal({ orders, open, onClose }: Props) {
                           {formatKg(row.order.weightKg)}
                         </Badge>
                         <p className="text-sm font-bold text-primary">{row.score}/100</p>
+                        <Badge
+                          variant={(row.score ?? 0) >= AUTO_DISPATCH_MIN_SCORE ? "success" : "warning"}
+                          className="text-[9px] mt-1"
+                        >
+                          {(row.score ?? 0) >= AUTO_DISPATCH_MIN_SCORE ? "Tự phân ✓" : "Cần xác nhận"}
+                        </Badge>
                       </div>
                     </div>
                   </label>

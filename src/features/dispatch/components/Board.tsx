@@ -38,6 +38,11 @@ import { CarrierPickerSheet } from "./CarrierPickerSheet";
 import { SupervisorReviewDialog } from "./SupervisorReviewDialog";
 import { Button } from "@/shared/ui/button";
 import { FleetMapPanel } from "./FleetMapPanel";
+import { analyzeBoard, type PerOrderAi } from "@/features/dispatch/domain/aiMockEngine";
+import { AiModeToggle } from "./ai/AiModeToggle";
+import { AIAnalyzingBanner } from "./ai/AIAnalyzingBanner";
+import { AISuggestionRail } from "./ai/AISuggestionRail";
+import { AIOrderCardOverlay } from "./ai/AIOrderCardOverlay";
 import type { Carrier, Order, Vehicle } from "@/shared/types";
 import { ShieldCheck, ShieldAlert, Clock } from "lucide-react";
 import Link from "next/link";
@@ -52,6 +57,8 @@ export function DispatchBoard() {
     const customers = useDataStore((s) => s.customers);
     const unassignOrder = useDataStore((s) => s.unassignOrder);
     const submitOrderCarrier = useDataStore((s) => s.submitOrderCarrier);
+    const assignOrderToVehicle = useDataStore((s) => s.assignOrderToVehicle);
+    const warehouses = useDataStore((s) => s.warehouses);
     const user = useAuthStore((s) => s.currentUser);
 
     const [aiOrder, setAiOrder] = useState<Order | null>(null);
@@ -65,6 +72,7 @@ export function DispatchBoard() {
     const [searchQuery, setSearchQuery] = useState("");
     const [vehicleSearch, setVehicleSearch] = useState("");
     const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
+    const [aiMode, setAiMode] = useState(false);
 
     // Chọn xe để focus trên bản đồ (đồng thời chuyển sang tab Bản đồ ở mobile).
     function focusVehicle(id: string | null) {
@@ -139,6 +147,59 @@ export function DispatchBoard() {
                 : assignedOrders,
         [assignedOrders, customers, q],
     );
+
+    // ----- Smart Dispatch (Chế độ AI) -----
+    const analysis = useMemo(
+        () =>
+            aiMode
+                ? analyzeBoard({
+                      orders: pendingOrders,
+                      allOrders: orders,
+                      vehicles,
+                      warehouses,
+                      nowIso: new Date().toISOString(),
+                  })
+                : null,
+        [aiMode, pendingOrders, orders, vehicles, warehouses],
+    );
+    const aiPending = useMemo(() => {
+        if (!aiMode || !analysis) return filteredPending;
+        return [...filteredPending].sort(
+            (a, b) => (analysis.perOrder.get(b.id)?.risk.score ?? 0) - (analysis.perOrder.get(a.id)?.risk.score ?? 0),
+        );
+    }, [aiMode, analysis, filteredPending]);
+
+    function aiAssign(order: Order, ai: PerOrderAi) {
+        if (!user || !ai.suggestion) return;
+        const v = vehicles.find((x) => x.id === ai.suggestion!.vehicleId);
+        if (!v) return;
+        const res = submitOrderCarrier(order.id, v.carrierId, user.id);
+        if (!res.ok) {
+            toast.error(res.reason || "Không phân được xe");
+            return;
+        }
+        if (res.needsReview) {
+            toast.success(`Đã gửi ${order.code} lên giám sát duyệt (NCC dự phòng)`);
+            return;
+        }
+        const a = assignOrderToVehicle(order.id, v.id, user.id);
+        if (a) toast.success(`AI đã phân ${v.plateNumber} cho ${order.code}`);
+        else toast.error("Không phân được xe — kiểm tra trạng thái đơn");
+    }
+
+    function renderAiSection() {
+        return (
+            <div className="space-y-2">
+                <AiModeToggle checked={aiMode} onChange={setAiMode} />
+                {aiMode && analysis && (
+                    <>
+                        <AIAnalyzingBanner orderCount={pendingOrders.length} runKey={pendingOrders.length} />
+                        <AISuggestionRail clusters={analysis.clusters} />
+                    </>
+                )}
+            </div>
+        );
+    }
 
     const availableVehicles = useMemo(
         () => vehicles.filter((v) => v.status === "AVAILABLE"),
@@ -370,6 +431,7 @@ export function DispatchBoard() {
                                                 Tự động điều phối: BẬT — đơn mới được AI phân ngay; mục này chỉ còn đơn cần xử lý tay.
                                             </span>
                                         </div>
+                                        {renderAiSection()}
                                         <Button
                                             size="sm"
                                             className="w-full h-8"
@@ -393,15 +455,20 @@ export function DispatchBoard() {
                                                 {q ? "Không tìm thấy đơn phù hợp" : "Không có đơn nào chờ phân"}
                                             </div>
                                         )}
-                                        {filteredPending.map((o) => (
-                                            <MobileOrderRow
-                                                key={o.id}
-                                                order={o}
-                                                customerName={customerName(o.customerId)}
-                                                onAssign={() => setCarrierPickOrder(o)}
-                                                onSuggest={() => setAiOrder(o)}
-                                            />
-                                        ))}
+                                        {aiPending.map((o) => {
+                                            const ai = aiMode ? analysis?.perOrder.get(o.id) : undefined;
+                                            return (
+                                                <MobileOrderRow
+                                                    key={o.id}
+                                                    order={o}
+                                                    customerName={customerName(o.customerId)}
+                                                    onAssign={() => setCarrierPickOrder(o)}
+                                                    onSuggest={() => setAiOrder(o)}
+                                                    ai={ai}
+                                                    onAiAssign={ai ? () => aiAssign(o, ai) : undefined}
+                                                />
+                                            );
+                                        })}
                                     </>
                                 )}
                                 {ordersTab === "review" && (
@@ -645,6 +712,7 @@ export function DispatchBoard() {
                                             Tự động điều phối: BẬT — đơn mới được AI phân ngay; mục này chỉ còn đơn cần xử lý tay.
                                         </span>
                                     </div>
+                                    {renderAiSection()}
                                     <Button
                                         size="sm"
                                         className="w-full h-8"
@@ -667,15 +735,20 @@ export function DispatchBoard() {
                                             {q ? "Không tìm thấy đơn phù hợp" : "Không có đơn chờ"}
                                         </p>
                                     )}
-                                    {filteredPending.map((o) => (
-                                        <DraggableOrderCard
-                                            key={o.id}
-                                            order={o}
-                                            customerName={customerName(o.customerId)}
-                                            onSuggest={() => setAiOrder(o)}
-                                            onAssign={() => setCarrierPickOrder(o)}
-                                        />
-                                    ))}
+                                    {aiPending.map((o) => {
+                                        const ai = aiMode ? analysis?.perOrder.get(o.id) : undefined;
+                                        return (
+                                            <DraggableOrderCard
+                                                key={o.id}
+                                                order={o}
+                                                customerName={customerName(o.customerId)}
+                                                onSuggest={() => setAiOrder(o)}
+                                                onAssign={() => setCarrierPickOrder(o)}
+                                                ai={ai}
+                                                onAiAssign={ai ? () => aiAssign(o, ai) : undefined}
+                                            />
+                                        );
+                                    })}
                                 </>
                             )}
                             {ordersTab === "review" && (
@@ -1050,11 +1123,15 @@ function MobileOrderRow({
     customerName,
     onAssign,
     onSuggest,
+    ai,
+    onAiAssign,
 }: {
     order: Order;
     customerName: string;
     onAssign: () => void;
     onSuggest: () => void;
+    ai?: PerOrderAi;
+    onAiAssign?: () => void;
 }) {
     const fb = order.dispatchFallback;
     return (
@@ -1079,6 +1156,7 @@ function MobileOrderRow({
                 </Badge>
             </div>
             <DispatchFallbackBadge order={order} />
+            {ai && <AIOrderCardOverlay ai={ai} onAssign={onAiAssign} />}
             <div className="flex gap-2">
                 <button
                     onClick={onSuggest}
@@ -1106,11 +1184,15 @@ function DraggableOrderCard({
     customerName,
     onSuggest,
     onAssign,
+    ai,
+    onAiAssign,
 }: {
     order: Order;
     customerName: string;
     onSuggest: () => void;
     onAssign: () => void;
+    ai?: PerOrderAi;
+    onAiAssign?: () => void;
 }) {
     const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
         id: order.id,
@@ -1158,6 +1240,7 @@ function DraggableOrderCard({
                     <DispatchFallbackBadge order={order} />
                 </div>
             )}
+            {ai && <AIOrderCardOverlay ai={ai} onAssign={onAiAssign} />}
             <div className="mt-2 grid grid-cols-2 gap-1.5">
                 <button
                     onClick={(e) => {

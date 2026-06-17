@@ -2,6 +2,7 @@
 
 import { Sidebar } from "@/shared/components/Sidebar";
 import { WarehouseGate } from "@/features/warehouses/components/WarehouseGate";
+import { CopilotProvider } from "@/features/copilot/components/CopilotProvider";
 import { useAuthStore } from "@/features/auth/stores/auth";
 import { useRouter } from "next/navigation";
 import { useEffect } from "react";
@@ -26,6 +27,7 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       <div className="flex flex-1 flex-col overflow-hidden">
         <WarehouseGate>{children}</WarehouseGate>
       </div>
+      <CopilotProvider />
     </div>
   );
 }

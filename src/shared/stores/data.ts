@@ -211,6 +211,13 @@ interface DataState {
     note?: string;
     actorId: string;
   }) => void;
+  /** Tạo phiếu xuất kho thủ công (không gắn đơn) — trừ tồn theo SKU. */
+  recordManualOutbound: (input: {
+    warehouseId: string;
+    lines: { productId: string; quantity: number }[];
+    note?: string;
+    actorId: string;
+  }) => { ok: boolean; reason?: string };
   receiveReturnToWarehouse: (returnId: string, actorId: string) => { ok: boolean; reason?: string };
 
   // vehicles (merged with driver)
@@ -2101,6 +2108,28 @@ export const useDataStore = create<DataState>()(
           }));
         if (moves.length === 0) return;
         set({ stockMovements: [...moves, ...get().stockMovements] });
+      },
+
+      recordManualOutbound: (input) => {
+        const { warehouseId, lines, note, actorId } = input;
+        if (!warehouseId) return { ok: false, reason: "Chưa chọn kho xuất" };
+        const now = nowIso();
+        const moves: StockMovement[] = lines
+          .filter((l) => l.productId && l.quantity > 0)
+          .map((l) => ({
+            id: uid("mv"),
+            warehouseId,
+            productId: l.productId,
+            qtyDelta: -Math.abs(l.quantity),
+            direction: "OUTBOUND",
+            refType: "MANUAL",
+            note,
+            recordedBy: actorId,
+            at: now,
+          }));
+        if (moves.length === 0) return { ok: false, reason: "Không có dòng hàng hợp lệ" };
+        set({ stockMovements: [...moves, ...get().stockMovements] });
+        return { ok: true };
       },
 
       receiveReturnToWarehouse: (returnId, actorId) => {

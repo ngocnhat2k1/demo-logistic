@@ -5,6 +5,8 @@ export interface VehicleSuggestion {
   vehicleId: string;
   score: number; // 0..100
   reasons: string[];
+  /** Điểm đóng góp đã nhân trọng số (0..100) — dùng cho UI "Vì sao xe này?". */
+  breakdown?: { dist: number; warehouse: number; capacity: number; familiarity: number };
 }
 
 interface SuggestArgs {
@@ -50,6 +52,12 @@ export function suggestVehicles({ order, vehicles, warehouse }: SuggestArgs): Ve
         vehicleId: v.id,
         score: Math.round(score * 100),
         reasons,
+        breakdown: {
+          dist: Math.round(distScore * 0.45 * 100),
+          warehouse: Math.round(whScore * 0.1 * 100),
+          capacity: Math.round(capScore * 0.3 * 100),
+          familiarity: Math.round(famScore * 0.15 * 100),
+        },
       };
     })
     .sort((a, b) => b.score - a.score)
