@@ -44,6 +44,7 @@ interface Props {
 export function ImportOrderDialog({ open, onOpenChange }: Props) {
   const customers = useDataStore((s) => s.customers);
   const warehouses = useDataStore((s) => s.warehouses);
+  const products = useDataStore((s) => s.products);
   const createOrder = useDataStore((s) => s.createOrder);
   const currentWarehouseId = useUIStore((s) => s.currentWarehouseId);
   const [rows, setRows] = useState<ParsedRow[]>([]);
@@ -136,17 +137,32 @@ export function ImportOrderDialog({ open, onOpenChange }: Props) {
       toast.error("Vui lòng chọn kho nhập đơn");
       return;
     }
+    const activeProducts = products.filter((p) => p.status === "ACTIVE");
     let n = 0;
-    rows.forEach((r) => {
+    rows.forEach((r, idx) => {
       if (!r.ok) return;
       const c = customers.find((cc) => cc.code === r.customerCode);
       if (!c) return;
       const dropPlace =
         Object.values(PLACES).find((p) => p.name.includes(r.dropoff)) ??
         PLACES.BD_DI_AN;
+      // Gắn 1 dòng SKU minh hoạ để đơn có thể xuất kho (chọn SP xoay vòng theo dòng).
+      const prod = activeProducts.length ? activeProducts[idx % activeProducts.length] : null;
+      const items = prod
+        ? [
+            {
+              productId: prod.id,
+              sku: prod.sku,
+              name: prod.name,
+              quantity: Math.max(1, Math.round(r.weightKg / Math.max(1, prod.unitWeightKg))),
+              unitWeightKg: prod.unitWeightKg,
+            },
+          ]
+        : undefined;
       createOrder({
         customerId: c.id,
         warehouseId: wh.id,
+        items,
         pickup: {
           address: wh.location.address,
           lat: wh.location.lat,

@@ -11,6 +11,7 @@ import type {
   DispatchAssignment,
   AppNotification,
   ReturnReasonConfig,
+  ReturnOrder,
   OdometerEntry,
   LicenseClass,
   Warehouse,
@@ -591,12 +592,119 @@ export function buildSeed() {
         id: uid("mv"),
         warehouseId: w.id,
         productId: p.id,
-        qtyDelta: rangeInt(rng, 50, 500),
+        qtyDelta: rangeInt(rng, 300, 900),
         direction: "INBOUND",
         refType: "SEED",
         note: "Tồn đầu kỳ (seed)",
         recordedBy: "system",
         at: nowSeedIso,
+      });
+    }
+  }
+
+  // ---- Returns (đơn trả hàng) ----
+  // Gắn phiếu trả vào các đơn "giao thất bại" / "đang xử lý trả" để màn hình Trả hàng có dữ liệu mẫu.
+  const returns: ReturnOrder[] = [];
+  const returnReasonByCode = (code: string) =>
+    DEFAULT_RETURN_REASONS.find((r) => r.code === code) ?? DEFAULT_RETURN_REASONS[0];
+  const RETURN_NOTES: Record<string, string> = {
+    CUSTOMER_REJECTED: "Khách kiểm hàng tại điểm giao rồi từ chối nhận.",
+    NO_CONTACT: "Gọi nhiều lần không liên lạc được người nhận; đã chờ tại điểm giao.",
+    WRONG_ADDRESS: "Địa chỉ trên đơn không chính xác, không tìm được người nhận.",
+    DAMAGED_GOODS: "Thùng hàng bị móp/ướt do va đập, đã lập biên bản hiện trường.",
+    CUSTOMER_REQUEST: "Khách/kinh doanh yêu cầu hoàn hàng về kho.",
+    VEHICLE_BREAKDOWN: "Xe gặp sự cố giữa đường, điều phối quyết định hoàn hàng về kho.",
+  };
+  const pushSeedReturn = (order: Order, reasonCode: string, status: ReturnOrder["status"]) => {
+    const reason = returnReasonByCode(reasonCode);
+    const createdMs = new Date(order.createdAt).getTime() + 4 * 3600000; // 4h sau khi tạo đơn
+    returns.push({
+      id: `return_${returns.length + 1}`,
+      code: `RT-${String(returns.length + 1).padStart(4, "0")}`,
+      originalOrderId: order.id,
+      reasonId: reason.id,
+      reasonLabel: reason.label,
+      reasonCategory: reason.category,
+      refundPercent: reason.refundPercent,
+      notes: RETURN_NOTES[reasonCode],
+      evidencePhotos: [],
+      weightKg: order.weightKg,
+      refundedKg: Math.round((order.weightKg * reason.refundPercent) / 100),
+      status,
+      vehicleId: order.assignments[0]?.vehicleId,
+      createdAt: new Date(createdMs).toISOString(),
+      completedAt: status === "COMPLETED" ? new Date(createdMs + 12 * 3600000).toISOString() : undefined,
+    });
+  };
+
+  // 1) Đơn giao thất bại → phiếu trả mới tạo (CREATED), đơn giữ trạng thái DELIVERY_FAILED.
+  const failedReasonCodes = ["CUSTOMER_REJECTED", "NO_CONTACT", "WRONG_ADDRESS"];
+  orders
+    .filter((o) => o.status === "DELIVERY_FAILED")
+    .forEach((o, i) => pushSeedReturn(o, failedReasonCodes[i % failedReasonCodes.length], "CREATED"));
+
+  // 2) Đơn đang xử lý trả → 1 phiếu đang xử lý (PROCESSING), 1 phiếu đang trả về kho (RETURNING).
+  orders
+    .filter((o) => o.status === "RETURN_PROCESSING")
+    .forEach((o, i) => {
+      if (i === 0) {
+        pushSeedReturn(o, "DAMAGED_GOODS", "PROCESSING");
+      } else {
+        o.status = "RETURNING_TO_WAREHOUSE";
+        o.updatedAt = nowSeedIso;
+        pushSeedReturn(o, "VEHICLE_BREAKDOWN", "RETURNING");
+      }
+    });
+
+  // 3) Hai đơn đã giao → chuyển "đã trả về kho" (RETURNED) kèm phiếu trả hoàn tất (COMPLETED).
+  const completedReasonCodes = ["CUSTOMER_REQUEST", "DAMAGED_GOODS"];
+  orders
+    .filter((o) => o.status === "DELIVERED")
+    .slice(0, 2)
+    .forEach((o, i) => {
+      o.status = "RETURNED";
+      o.updatedAt = nowSeedIso;
+      pushSeedReturn(o, completedReasonCodes[i % completedReasonCodes.length], "COMPLETED");
+    });
+
+  // ---- Lịch sử xuất kho (minh hoạ ledger) ----
+  // Đơn đã rời kho để giao (đang giao / chờ thu hộ / đã giao / đã trả về) → ghi nhận xuất kho.
+  // KHÔNG ghi cho DISPATCHED/PICKED_UP để các đơn này còn hiển thị ở màn hình Xuất kho.
+  const SHIPPED_STATUSES = ["IN_TRANSIT", "PENDING_PAYMENT", "DELIVERED", "RETURNED"];
+  for (const o of orders) {
+    if (!o.warehouseId || !o.items || o.items.length === 0) continue;
+    if (!SHIPPED_STATUSES.includes(o.status)) continue;
+    const at = o.pickedUpAt ?? o.deliveredAt ?? o.updatedAt ?? nowSeedIso;
+    for (const it of o.items) {
+      stockMovements.push({
+        id: uid("mv"),
+        warehouseId: o.warehouseId,
+        productId: it.productId,
+        qtyDelta: -it.quantity,
+        direction: "OUTBOUND",
+        refType: "ORDER",
+        refId: o.id,
+        recordedBy: "system",
+        at,
+      });
+    }
+  }
+  // Hàng trả đã hoàn tất (COMPLETED) → nhập lại kho (tăng tồn).
+  for (const r of returns) {
+    if (r.status !== "COMPLETED") continue;
+    const o = orders.find((x) => x.id === r.originalOrderId);
+    if (!o?.warehouseId || !o.items || o.items.length === 0) continue;
+    for (const it of o.items) {
+      stockMovements.push({
+        id: uid("mv"),
+        warehouseId: o.warehouseId,
+        productId: it.productId,
+        qtyDelta: it.quantity,
+        direction: "INBOUND",
+        refType: "RETURN",
+        refId: r.id,
+        recordedBy: "system",
+        at: r.completedAt ?? nowSeedIso,
       });
     }
   }
@@ -608,6 +716,7 @@ export function buildSeed() {
     orders,
     users,
     notifications,
+    returns,
     returnReasons: DEFAULT_RETURN_REASONS,
     warehouses,
     products,

@@ -5,6 +5,10 @@ import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import type { LatLng } from "@/shared/types";
 
+/** True khi cả lat & lng đều là số hữu hạn — chặn NaN/undefined/Infinity lọt vào Leaflet (gây crash "Invalid LatLng"). */
+const isFiniteLatLng = (lat: number, lng: number): boolean =>
+  Number.isFinite(lat) && Number.isFinite(lng);
+
 // Inline marker icon (data URI) to avoid bundler asset issues
 const MARKER_DATA_URL =
   "data:image/svg+xml;base64," +
@@ -130,8 +134,12 @@ export default function MapCanvas({
   const didFitRef = useRef(false);
   const fitKeyRef = useRef(fitKey);
 
-  const memoMarkers = useMemo(() => markers, [markers]);
-  const memoPolylines = useMemo(() => polylines, [polylines]);
+  // Lọc bỏ toạ độ không hợp lệ trước khi đưa vào Leaflet — marker/điểm xấu bị bỏ qua thay vì làm sập cả app.
+  const memoMarkers = useMemo(() => markers.filter((m) => isFiniteLatLng(m.lat, m.lng)), [markers]);
+  const memoPolylines = useMemo(
+    () => polylines.map((p) => ({ ...p, points: p.points.filter((pt) => isFiniteLatLng(pt.lat, pt.lng)) })),
+    [polylines],
+  );
 
   // Init map once
   useEffect(() => {
@@ -201,7 +209,14 @@ export default function MapCanvas({
       const lat = items.reduce((s, i) => s + i.lat, 0) / items.length;
       const lng = items.reduce((s, i) => s + i.lng, 0) / items.length;
       const bubble = L.marker([lat, lng], { icon: clusterDivIcon(items.length) });
-      bubble.on("click", () => map.flyTo([lat, lng], Math.min(z + 2, 13)));
+      bubble.on("click", () => {
+        map.stop();
+        try {
+          map.flyTo([lat, lng], Math.min((Number.isFinite(z) ? z : 9) + 2, 13));
+        } catch {
+          map.setView([lat, lng], Math.min((Number.isFinite(z) ? z : 9) + 2, 13));
+        }
+      });
       bubble.addTo(map);
       layersRef.current.markers.push(bubble);
     });
@@ -237,7 +252,19 @@ export default function MapCanvas({
     const map = mapRef.current;
     if (!map || !selectedId) return;
     const mk = memoMarkers.find((m) => m.id === selectedId);
-    if (mk) map.flyTo([mk.lat, mk.lng], Math.max(map.getZoom(), 11), { duration: 0.6 });
+    if (!mk || !isFiniteLatLng(mk.lat, mk.lng)) return;
+    // getZoom() có thể trả NaN nếu map chưa ổn định → fallback về zoom mặc định.
+    const cur = map.getZoom();
+    const zoom = Math.max(Number.isFinite(cur) ? cur : 9, 11);
+    // Dừng mọi animation đang chạy trước khi flyTo. Gọi flyTo khi flyTo trước CHƯA xong khiến
+    // Leaflet tính getCenter() ra NaN giữa chừng và ném "Invalid LatLng (NaN, NaN)" (lỗi đã biết).
+    map.stop();
+    try {
+      map.flyTo([mk.lat, mk.lng], zoom, { duration: 0.6 });
+    } catch {
+      // Phòng hờ: nếu flyTo vẫn lỗi (state nội bộ hỏng), nhảy thẳng tới vị trí, không animation.
+      map.setView([mk.lat, mk.lng], zoom);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
@@ -251,7 +278,7 @@ export default function MapCanvas({
     fitKeyRef.current = fitKey;
     didFitRef.current = true;
     const bounds = L.latLngBounds(memoMarkers.map((m) => [m.lat, m.lng] as [number, number]));
-    map.fitBounds(bounds, { padding: [48, 48], maxZoom: 12 });
+    if (bounds.isValid()) map.fitBounds(bounds, { padding: [48, 48], maxZoom: 12 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fitKey, memoMarkers.length]);
 

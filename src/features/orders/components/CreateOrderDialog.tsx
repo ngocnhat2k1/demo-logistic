@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Camera, AlertTriangle, Plus } from "lucide-react";
+import { Camera, AlertTriangle, Plus, Trash2, PackagePlus } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -27,6 +27,12 @@ import { useAuthStore } from "@/features/auth/stores/auth";
 import { checkQuota, quotaInUse, quotaLabel } from "@/features/orders/domain/quota";
 import { formatKg, formatVnd } from "@/shared/utils";
 import { PLACES, type PlaceKey } from "@/shared/mock/geo";
+import { QuickAddProductDialog } from "@/features/products/components/QuickAddProductDialog";
+
+interface LineRow {
+  productId: string;
+  quantity: string;
+}
 
 interface Props {
   open: boolean;
@@ -38,16 +44,20 @@ export function CreateOrderDialog({ open, onOpenChange, onOpenImport }: Props) {
   const router = useRouter();
   const customers = useDataStore((s) => s.customers);
   const warehouses = useDataStore((s) => s.warehouses);
+  const products = useDataStore((s) => s.products);
   const createOrder = useDataStore((s) => s.createOrder);
   const pushNotification = useDataStore((s) => s.pushNotification);
   const currentWarehouseId = useUIStore((s) => s.currentWarehouseId);
   const user = useAuthStore((s) => s.currentUser);
 
   const activeWarehouses = warehouses.filter((w) => w.status === "ACTIVE");
+  const activeProducts = products.filter((p) => p.status === "ACTIVE");
 
   const [customerId, setCustomerId] = useState("");
   const [warehouseId, setWarehouseId] = useState("");
   const [dropoffKey, setDropoffKey] = useState<PlaceKey>("BD_DI_AN");
+  const [items, setItems] = useState<LineRow[]>([{ productId: "", quantity: "" }]);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
 
   // Mặc định kho xuất = kho đang chọn (nếu cụ thể), ngược lại để trống → bắt chọn (mode "Tất cả kho").
   useEffect(() => {
@@ -70,6 +80,25 @@ export function CreateOrderDialog({ open, onOpenChange, onOpenImport }: Props) {
   const canManagerOverride =
     user?.role === "ADMIN" || user?.role === "OPS_MANAGER";
 
+  // Dòng hàng hợp lệ (snapshot SKU) — dùng để gắn order.items + tính TL gợi ý.
+  const parsedItems = items.flatMap((l) => {
+    const p = products.find((pp) => pp.id === l.productId);
+    const q = Number(l.quantity);
+    if (!p || !Number.isFinite(q) || q <= 0) return [];
+    return [{ productId: p.id, sku: p.sku, name: p.name, quantity: q, unitWeightKg: p.unitWeightKg }];
+  });
+  const derivedWeight = parsedItems.reduce((s, it) => s + it.unitWeightKg * it.quantity, 0);
+
+  function updateItem(i: number, patch: Partial<LineRow>) {
+    setItems((prev) => prev.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
+  }
+  function addItem() {
+    setItems((prev) => [...prev, { productId: "", quantity: "" }]);
+  }
+  function removeItem(i: number) {
+    setItems((prev) => (prev.length === 1 ? [{ productId: "", quantity: "" }] : prev.filter((_, idx) => idx !== i)));
+  }
+
   function resetForm() {
     setCustomerId("");
     setWarehouseId("");
@@ -78,6 +107,7 @@ export function CreateOrderDialog({ open, onOpenChange, onOpenImport }: Props) {
     setCodAmount(0);
     setDescription("Hàng tiêu dùng");
     setNotes("");
+    setItems([{ productId: "", quantity: "" }]);
     setRequestedDeliveryAt(
       new Date(Date.now() + 86400000).toISOString().slice(0, 16)
     );
@@ -123,6 +153,7 @@ export function CreateOrderDialog({ open, onOpenChange, onOpenImport }: Props) {
       },
       weightKg,
       codAmount: codAmount > 0 ? codAmount : undefined,
+      items: parsedItems.length ? parsedItems : undefined,
       description,
       notes,
       requestedDeliveryAt: new Date(requestedDeliveryAt).toISOString(),
@@ -143,6 +174,7 @@ export function CreateOrderDialog({ open, onOpenChange, onOpenImport }: Props) {
   }
 
   return (
+    <>
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent className="max-w-2xl">
         <DialogHeader>
@@ -232,6 +264,71 @@ export function CreateOrderDialog({ open, onOpenChange, onOpenImport }: Props) {
                   ))}
                 </SelectContent>
               </Select>
+            </div>
+
+            <div className="space-y-2 md:col-span-2 rounded-md border p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <Label>Hàng hoá (SKU) — cần để xuất kho</Label>
+                <div className="flex gap-1">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setQuickAddOpen(true)}>
+                    <PackagePlus className="h-4 w-4" /> SKU mới
+                  </Button>
+                  {parsedItems.length > 0 && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setWeightKg(Math.max(1, Math.round(derivedWeight)))}
+                      title="Đặt khối lượng = tổng trọng lượng các SKU"
+                    >
+                      Lấy TL từ SKU ({formatKg(derivedWeight)})
+                    </Button>
+                  )}
+                </div>
+              </div>
+              {items.map((l, i) => (
+                <div key={i} className="flex items-end gap-2">
+                  <div className="flex-1">
+                    <Select value={l.productId} onValueChange={(v) => updateItem(i, { productId: v })}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Chọn sản phẩm" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {activeProducts.map((p) => (
+                          <SelectItem key={p.id} value={p.id}>
+                            {p.sku} — {p.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <div className="w-24">
+                    <Input
+                      type="number"
+                      min={1}
+                      value={l.quantity}
+                      onChange={(e) => updateItem(i, { quantity: e.target.value })}
+                      placeholder="SL"
+                    />
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="h-10 w-10 text-destructive"
+                    onClick={() => removeItem(i)}
+                    title="Xoá dòng"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              ))}
+              <Button type="button" variant="outline" size="sm" onClick={addItem}>
+                <Plus className="h-4 w-4" /> Thêm dòng hàng
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Thêm SKU để có thể xuất kho & in phiếu cho đơn này. Có thể bỏ trống nếu chưa cần.
+              </p>
             </div>
 
             <div className="space-y-1.5 md:col-span-2">
@@ -343,5 +440,19 @@ export function CreateOrderDialog({ open, onOpenChange, onOpenImport }: Props) {
         </div>
       </DialogContent>
     </Dialog>
+
+    <QuickAddProductDialog
+      open={quickAddOpen}
+      onOpenChange={setQuickAddOpen}
+      onCreated={(p) => {
+        setItems((prev) => {
+          const emptyIdx = prev.findIndex((l) => !l.productId);
+          if (emptyIdx >= 0)
+            return prev.map((l, idx) => (idx === emptyIdx ? { ...l, productId: p.id } : l));
+          return [...prev, { productId: p.id, quantity: "" }];
+        });
+      }}
+    />
+    </>
   );
 }

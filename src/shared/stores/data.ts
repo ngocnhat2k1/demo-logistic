@@ -333,7 +333,12 @@ export const useDataStore = create<DataState>()(
 
       ensureSeeded: () => {
         const s = get();
-        if (s.customers.length > 0 || s.orders.length > 0) {
+        const hasCore = s.customers.length > 0 || s.orders.length > 0;
+        // Dữ liệu kho hàng (warehouses/products) là schema mới. Dữ liệu cũ được seed TRƯỚC khi có
+        // kho (vd: dev-server reload giữa lúc thêm field) sẽ thiếu products/warehouses → tự lành
+        // bằng cách re-seed lại toàn bộ, tránh phải bấm "Reset Demo Data" thủ công.
+        const hasWarehouseData = s.warehouses.length > 0 && s.products.length > 0;
+        if (hasCore && hasWarehouseData) {
           const users = ensureCustomerAccessUser(s.users, s.customers);
           if (users !== s.users) set({ users });
           return;
@@ -2269,6 +2274,8 @@ export const useDataStore = create<DataState>()(
       },
 
       setVehicleLocation: (vehicleId, lat, lng, progress) => {
+        // Bỏ qua cập nhật GPS không hợp lệ — không để NaN/Infinity làm hỏng state (gây crash bản đồ).
+        if (!Number.isFinite(lat) || !Number.isFinite(lng)) return;
         set({
           vehicles: get().vehicles.map((v) =>
             v.id === vehicleId

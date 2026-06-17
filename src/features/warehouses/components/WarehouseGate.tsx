@@ -47,72 +47,80 @@ export function WarehouseGate({ children }: { children: React.ReactNode }) {
   }, [active, currentWarehouseId, allowAll, role, user?.warehouseId, setCurrentWarehouse]);
 
   // Đang chờ seed kho.
-  if (active.length === 0) {
-    return (
-      <div className="flex h-full flex-1 items-center justify-center p-6 text-center">
-        <div className="space-y-2">
-          <WarehouseIcon className="mx-auto h-10 w-10 text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">Chưa có kho hoạt động. Đang tải dữ liệu…</p>
-        </div>
-      </div>
-    );
-  }
-
   const selectionValid =
-    (currentWarehouseId === "ALL" && allowAll) ||
-    (currentWarehouseId != null &&
-      currentWarehouseId !== "ALL" &&
-      active.some((w) => w.id === currentWarehouseId));
+    active.length > 0 &&
+    ((currentWarehouseId === "ALL" && allowAll) ||
+      (currentWarehouseId != null &&
+        currentWarehouseId !== "ALL" &&
+        active.some((w) => w.id === currentWarehouseId)));
 
   if (selectionValid) return <>{children}</>;
 
-  // Màn hình chọn kho.
+  // Popup BẮT BUỘC chọn kho — phủ toàn màn hình, không có nút đóng / không thể tắt
+  // (không Escape, không click ra ngoài, không render nội dung phía sau).
   return (
-    <div className="flex h-full flex-1 items-center justify-center overflow-y-auto p-4 md:p-8">
-      <div className="w-full max-w-3xl space-y-6">
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="warehouse-gate-title"
+    >
+      <div className="w-full max-w-2xl space-y-6 rounded-xl border bg-background p-6 shadow-2xl max-h-[90vh] overflow-y-auto">
         <div className="text-center">
-          <WarehouseIcon className="mx-auto mb-2 h-10 w-10 text-primary" />
-          <h1 className="text-xl font-semibold">Chọn kho làm việc</h1>
+          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+            <WarehouseIcon className="h-6 w-6" />
+          </div>
+          <h1 id="warehouse-gate-title" className="text-xl font-semibold">
+            Chọn kho làm việc
+          </h1>
           <p className="text-sm text-muted-foreground">
-            Mọi thao tác (đơn hàng, điều phối, nhập/xuất) sẽ áp dụng cho kho bạn chọn.
+            Bạn cần chọn kho trước khi thao tác. Mọi hành động (đơn hàng, điều phối, nhập/xuất) sẽ
+            áp dụng cho kho đã chọn.
           </p>
         </div>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          {allowAll && (
-            <button type="button" onClick={() => setCurrentWarehouse("ALL")} className="text-left">
-              <Card className="h-full transition hover:border-primary hover:shadow-md">
-                <CardContent className="flex items-center gap-3 p-4">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                    <Globe className="h-6 w-6" />
-                  </div>
-                  <div>
-                    <p className="font-semibold">Tất cả kho</p>
-                    <p className="text-sm text-muted-foreground">Xem tổng hợp toàn hệ thống</p>
-                  </div>
-                </CardContent>
-              </Card>
-            </button>
-          )}
-          {active.map((w) => (
-            <button key={w.id} type="button" onClick={() => setCurrentWarehouse(w.id)} className="text-left">
-              <Card className="h-full transition hover:border-primary hover:shadow-md">
-                <CardContent className="flex items-center gap-3 p-4">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-muted text-foreground">
-                    <WarehouseIcon className="h-6 w-6" />
-                  </div>
-                  <div className="min-w-0">
-                    <p className="font-semibold truncate">{w.name}</p>
-                    <p className="inline-flex items-center gap-1 text-sm text-muted-foreground truncate">
-                      <MapPin className="h-3 w-3 shrink-0" />
-                      <span className="truncate">{w.location.address}</span>
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-            </button>
-          ))}
-        </div>
+        {active.length === 0 ? (
+          <div className="flex flex-col items-center gap-2 py-6 text-center">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+            <p className="text-sm text-muted-foreground">Đang tải danh sách kho…</p>
+          </div>
+        ) : (
+          <div className="grid gap-3 sm:grid-cols-2">
+            {allowAll && (
+              <button type="button" onClick={() => setCurrentWarehouse("ALL")} className="text-left">
+                <Card className="h-full transition hover:border-primary hover:shadow-md">
+                  <CardContent className="flex items-center gap-3 p-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                      <Globe className="h-6 w-6" />
+                    </div>
+                    <div>
+                      <p className="font-semibold">Tất cả kho</p>
+                      <p className="text-sm text-muted-foreground">Xem tổng hợp toàn hệ thống</p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </button>
+            )}
+            {active.map((w) => (
+              <button key={w.id} type="button" onClick={() => setCurrentWarehouse(w.id)} className="text-left">
+                <Card className="h-full transition hover:border-primary hover:shadow-md">
+                  <CardContent className="flex items-center gap-3 p-4">
+                    <div className="flex h-12 w-12 items-center justify-center rounded-lg bg-muted text-foreground">
+                      <WarehouseIcon className="h-6 w-6" />
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-semibold truncate">{w.name}</p>
+                      <p className="inline-flex items-center gap-1 text-sm text-muted-foreground truncate">
+                        <MapPin className="h-3 w-3 shrink-0" />
+                        <span className="truncate">{w.location.address}</span>
+                      </p>
+                    </div>
+                  </CardContent>
+                </Card>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );

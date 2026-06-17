@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { PackagePlus, Undo2 } from "lucide-react";
 import Link from "next/link";
 import { format } from "date-fns";
@@ -14,17 +14,26 @@ import { Button } from "@/shared/ui/button";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/shared/ui/tabs";
 import { useDataStore } from "@/shared/stores/data";
 import { useUIStore } from "@/shared/stores/ui";
-import { useScopedReturns, useScopedOrders } from "@/shared/hooks/useScopedData";
+import { useScopedReturns, useScopedOrders, useScopedMovements } from "@/shared/hooks/useScopedData";
 import { useAuthStore } from "@/features/auth/stores/auth";
 import { formatKg } from "@/shared/utils";
 import { ReceiveStockDialog } from "@/features/warehouse-ops/components/ReceiveStockDialog";
 
 const PENDING_RETURN_STATUSES = ["CREATED", "PROCESSING", "RETURNING"] as const;
 
+const INBOUND_SOURCE_LABEL: Record<string, string> = {
+  MANUAL: "Nhập mới",
+  RETURN: "Hàng trả về",
+  ORDER: "Theo đơn",
+  SEED: "Tồn đầu kỳ",
+};
+
 export default function InboundPage() {
   const returns = useScopedReturns();
   const orders = useScopedOrders();
   const customers = useDataStore((s) => s.customers);
+  const products = useDataStore((s) => s.products);
+  const movements = useScopedMovements();
   const receiveReturnToWarehouse = useDataStore((s) => s.receiveReturnToWarehouse);
   const currentWarehouseId = useUIStore((s) => s.currentWarehouseId);
   const actorId = useAuthStore((s) => s.currentUser?.id ?? "system");
@@ -33,6 +42,19 @@ export default function InboundPage() {
 
   const pendingReturns = returns.filter((r) =>
     (PENDING_RETURN_STATUSES as readonly string[]).includes(r.status)
+  );
+
+  const productById = useMemo(() => new Map(products.map((p) => [p.id, p])), [products]);
+
+  // Phiếu nhập gần đây: mọi giao dịch tăng tồn trừ tồn đầu kỳ (SEED), mới nhất trước.
+  const recentInbound = useMemo(
+    () =>
+      movements
+        .filter((m) => m.direction === "INBOUND" && m.refType !== "SEED")
+        .slice()
+        .sort((a, b) => b.at.localeCompare(a.at))
+        .slice(0, 50),
+    [movements]
   );
 
   function handleReceiveReturn(id: string, code: string) {
@@ -59,9 +81,9 @@ export default function InboundPage() {
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="new" className="mt-4">
+          <TabsContent value="new" className="mt-4 space-y-4">
             <Card>
-              <CardContent className="flex flex-col items-center gap-3 p-8 text-center">
+              <CardContent className="flex flex-col items-center gap-3 p-6 text-center">
                 <PackagePlus className="h-10 w-10 text-primary" />
                 <p className="text-sm text-muted-foreground">
                   Ghi nhận hàng nhập kho theo SKU và số lượng. Tồn kho sẽ tăng tương ứng.
@@ -71,6 +93,62 @@ export default function InboundPage() {
                 </Button>
               </CardContent>
             </Card>
+
+            <div>
+              <p className="mb-2 text-sm font-semibold">Phiếu nhập gần đây</p>
+              <Card>
+                <CardContent className="p-0">
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead className="bg-muted/50 text-left">
+                        <tr>
+                          <th className="px-4 py-3 font-medium">Thời gian</th>
+                          <th className="px-4 py-3 font-medium">Sản phẩm</th>
+                          <th className="px-4 py-3 font-medium text-right">Số lượng</th>
+                          <th className="px-4 py-3 font-medium">Nguồn</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {recentInbound.length === 0 && (
+                          <tr>
+                            <td colSpan={4} className="px-4 py-10 text-center text-muted-foreground">
+                              Chưa có phiếu nhập nào. Bấm “Nhập hàng mới” để tạo.
+                            </td>
+                          </tr>
+                        )}
+                        {recentInbound.map((m) => {
+                          const p = productById.get(m.productId);
+                          return (
+                            <tr key={m.id} className="border-t hover:bg-muted/30 transition-colors">
+                              <td className="px-4 py-3 text-xs text-muted-foreground whitespace-nowrap">
+                                {format(new Date(m.at), "dd/MM HH:mm", { locale: vi })}
+                              </td>
+                              <td className="px-4 py-3">
+                                <span className="font-mono text-[11px] text-muted-foreground">
+                                  {p?.sku ?? m.productId}
+                                </span>
+                                <p className="text-xs">{p?.name ?? "—"}</p>
+                              </td>
+                              <td className="px-4 py-3 text-right font-semibold text-success whitespace-nowrap">
+                                +{m.qtyDelta}
+                              </td>
+                              <td className="px-4 py-3">
+                                <Badge variant={m.refType === "MANUAL" ? "success" : "secondary"}>
+                                  {INBOUND_SOURCE_LABEL[m.refType] ?? m.refType}
+                                </Badge>
+                                {m.note && (
+                                  <span className="ml-2 text-xs text-muted-foreground">{m.note}</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
           </TabsContent>
 
           <TabsContent value="returns" className="mt-4">
